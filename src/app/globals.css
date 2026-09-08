@@ -1,0 +1,191 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+/* shadcn ships a class-based dark variant; this app switches themes with a data
+   attribute so the setting can be applied from one place at startup. */
+@custom-variant dark (&:is([data-theme="dark"], [data-theme="dark"] *));
+
+/* One palette, and shadcn's semantic tokens derived from it. Components use the
+   semantic names; the theme screen only ever rewrites the palette above.
+   Note --accent belongs to shadcn (a subtle hover surface); the app's own accent
+   colour is --brand, which is a different thing despite the similar name. */
+:root {
+  /* Native controls — select, scrollbars, pickers — follow this, not our tokens. */
+  color-scheme: light;
+
+  --bg: oklch(0.985 0.002 260);
+  --surface: oklch(1 0 0);
+  --surface-2: oklch(0.972 0.003 260);
+  --border: oklch(0.9 0.005 260);
+  --border-strong: oklch(0.83 0.008 260);
+  --text: oklch(0.22 0.01 260);
+  --text-muted: oklch(0.53 0.012 260);
+  --brand: oklch(0.58 0.16 258);
+  --brand-contrast: oklch(0.99 0 0);
+  --danger: oklch(0.56 0.18 25);
+  --warning: oklch(0.62 0.15 70);
+  --success: oklch(0.55 0.14 150);
+
+  --radius: 4px;
+  --font-ui: var(--font-geist-sans), system-ui, sans-serif;
+  --font-code: var(--font-geist-mono), ui-monospace, monospace;
+
+  --background: var(--bg);
+  --foreground: var(--text);
+  --card: var(--surface);
+  --card-foreground: var(--text);
+  --popover: var(--surface);
+  --popover-foreground: var(--text);
+  --primary: var(--brand);
+  --primary-foreground: var(--brand-contrast);
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--text);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--text-muted);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--text);
+  --destructive: var(--danger);
+  --input: var(--border);
+  --ring: var(--brand);
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--text);
+  --sidebar-primary: var(--brand);
+  --sidebar-primary-foreground: var(--brand-contrast);
+  --sidebar-accent: var(--surface-2);
+  --sidebar-accent-foreground: var(--text);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--brand);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: oklch(0.17 0.008 260);
+  --surface: oklch(0.21 0.009 260);
+  --surface-2: oklch(0.25 0.01 260);
+  --border: oklch(0.29 0.011 260);
+  --border-strong: oklch(0.38 0.014 260);
+  --text: oklch(0.94 0.004 260);
+  --text-muted: oklch(0.68 0.012 260);
+  --brand: oklch(0.68 0.14 258);
+  --brand-contrast: oklch(0.18 0.01 260);
+  --danger: oklch(0.66 0.17 25);
+  --warning: oklch(0.78 0.14 75);
+  --success: oklch(0.72 0.14 150);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-brand: var(--brand);
+  --color-brand-contrast: var(--brand-contrast);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-app: var(--radius);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  /* Matches DEFAULT_THEME.fontSize, so the first frame is not a smaller
+     interface that resizes once the stored theme loads. */
+  html {
+    font-size: 18px;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    /* A desktop window is a shell, not a document: panes scroll, the page doesn't. */
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+
+  ::selection {
+    background: color-mix(in oklch, var(--brand) 30%, transparent);
+  }
+}
+
+/* Scrolling panes.
+
+   `scrollbar-gutter: stable` reserves the track whether or not a scrollbar is
+   showing, so a column does not jump sideways the moment one more card makes it
+   overflow. The inline padding is not decoration either: a focus ring is drawn
+   outside the input's border box, and an `overflow-y: auto` parent clips it on
+   both sides, so every scrolling pane keeps a ring's width of room. */
+@layer components {
+  .scroll-pane {
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+    padding-inline: 0.375rem;
+  }
+
+  .scroll-pane::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  .scroll-pane::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scroll-pane::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    border-radius: 999px;
+    background-clip: padding-box;
+  }
+
+  .scroll-pane::-webkit-scrollbar-thumb:hover {
+    background: var(--text-muted);
+    background-clip: padding-box;
+  }
+}

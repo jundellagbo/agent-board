@@ -1,0 +1,326 @@
+"use client";
+
+import { useDroppable } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { EllipsisIcon, GripVerticalIcon } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+
+import { Combobox } from "./Combobox";
+import { commandName } from "@/lib/compose";
+import { clearDraft, readDraft, writeDraft } from "@/lib/drafts";
+import { slash as slashApi } from "@/lib/ipc";
+import { modelsFor } from "@/lib/models";
+
+import { cardFromInput, looksLikeGithub } from "@/lib/github";
+
+import { TaskCard, type CardAction } from "./TaskCard";
+import { Button, Textarea } from "./ui";
+import { pickAgent } from "@/lib/agent";
+import type { Column as ColumnData } from "@/lib/board";
+import { useStore } from "@/lib/store";
+import type { SlashCommand, Task, TaskPatch } from "@/lib/types";
+
+/** Columns and their card-drop areas share a board but not an identity. */
+export function columnDragId(groupId: string): string {
+  return `column:${groupId}`;
+}
+
+export function groupIdFromDrag(dragId: string): string | null {
+  return dragId.startsWith("column:") ? dragId.slice("column:".length) : null;
+}
+
+export function Column({
+  column,
+  onAdd,
+  onOpen,
+  onEdit,
+  onToggleStep,
+  onAction,
+  statuses,
+  editor,
+}: {
+  column: ColumnData;
+  onAdd: (patch: TaskPatch, groupId: string) => void;
+  onOpen: (task: Task, group: ColumnData["group"]) => void;
+  onEdit: (group: ColumnData["group"]) => void;
+  onToggleStep: (task: Task, index: number) => void;
+  onAction: (task: Task, action: CardAction) => void;
+  statuses: Record<string, string>;
+  editor?: string;
+}) {
+  const { group, tasks } = column;
+  const composer = useRef<HTMLFormElement>(null);
+  const { agents, project } = useStore();
+  // What this column would run if the card said nothing — shown as the default
+  // so the choice is visible before it matters.
+  const defaultAgent = pickAgent(agents, {
+    group,
+    project: project ?? undefined,
+  });
+  const { setNodeRef, isOver } = useDroppable({
+    id: group.id,
+    data: { groupId: group.id },
+  });
+  // A separate id from the droppable above: one is where cards land, the other
+  // is the column itself being moved.
+  const sortable = useSortable({ id: columnDragId(group.id), data: { type: "column" } });
+  const [composing, setComposing] = useState(false);
+  const [title, setTitle] = useState("");
+
+  const overLimit = group.wipLimit !== null && tasks.length > group.wipLimit;
+
+  const [resolving, setResolving] = useState(false);
+  // Empty means "whatever this column would pick anyway", so the card is not
+  // pinned to today's default the moment it is created.
+  const [agentId, setAgentId] = useState("");
+  const [model, setModel] = useState("");
+
+  // Read after mounting rather than during render: this page is prerendered,
+  // where there is no storage to read and a different first paint would be a
+  // hydration mismatch.
+  useEffect(() => {
+    const draft = readDraft(group.id);
+    if (!draft) return;
+    setTitle(draft.title);
+    setAgentId(draft.agentId);
+    setModel(draft.model);
+    setComposing(true);
+  }, [group.id]);
+
+  // Kept as it is typed, so switching project or view does not discard it.
+  useEffect(() => {
+    if (composing) writeDraft(group.id, { title, agentId, model });
+  }, [composing, group.id, title, agentId, model]);
+  // A command belongs to the piece of work, not to the column it starts in.
+  const [commands, setCommands] = useState<SlashCommand[]>([]);
+
+  useEffect(() => {
+    if (!composing) return;
+    void slashApi
+      .list(group.projectId)
+      .then(setCommands)
+      .catch(() => setCommands([]));
+  }, [composing, group.projectId]);
+
+  const chosenAgent = agents.find((agent) => agent.id === agentId) ?? defaultAgent;
+  // Typing the command is the way to use one, so the composer says whether the
+  // one you typed is real rather than offering a second way to pick it.
+  const typed = commandName(title);
+  const known = typed ? commands.find((command) => command.name === typed) : undefined;
+
+  function reset() {
+    setTitle("");
+    setAgentId("");
+    setModel("");
+    setComposing(false);
+    // Cancelling is a decision to discard; navigating away is not.
+    clearDraft(group.id);
+  }
+
+  async function submit() {
+    if (title.trim() === "" || resolving) return;
+    setResolving(true);
+    const patch = await cardFromInput(title);
+    setResolving(false);
+    onAdd({ ...patch, agentId: agentId || null, model: model || null }, group.id);
+    reset();
+  }
+
+  return (
+    <section
+      ref={sortable.setNodeRef}
+      style={{
+        transform: CSS.Translate.toString(sortable.transform),
+        transition: sortable.transition,
+      }}
+      className={`group/column flex w-72 shrink-0 flex-col rounded-[calc(var(--radius)*1.5)] border border-border bg-muted/60 ${
+        sortable.isDragging ? "opacity-60 ring-1 ring-ring" : ""
+      }`}
+    >
+      <header className="flex items-center gap-2 px-4 py-2.5">
+        <button
+          type="button"
+          aria-label={`Move ${group.name}`}
+          title="Drag to reorder"
+          {...sortable.attributes}
+          {...sortable.listeners}
+          className="-ml-1.5 cursor-grab text-muted-foreground opacity-0 transition group-hover/column:opacity-100 focus-visible:opacity-100 active:cursor-grabbing"
+        >
+          <GripVerticalIcon className="size-3.5" />
+        </button>
+        <span
+          aria-hidden
+          className="h-2 w-2 shrink-0 rounded-full"
+          style={{ background: group.color ?? "var(--border-strong)" }}
+        />
+        <h2 className="min-w-0 flex-1 truncate text-sm font-semibold tracking-wide uppercase">
+          {group.name}
+        </h2>
+        <span
+          className={`shrink-0 font-mono text-sm tabular-nums ${
+            overLimit ? "text-destructive" : "text-muted-foreground"
+          }`}
+        >
+          {group.wipLimit !== null ? `${tasks.length}/${group.wipLimit}` : tasks.length}
+        </span>
+        <Button
+          size="icon-xs"
+          variant="ghost"
+          title="Edit column"
+          onClick={() => onEdit(group)}
+          className="shrink-0 text-muted-foreground opacity-0 transition group-hover/column:opacity-100 focus-visible:opacity-100"
+        >
+          <EllipsisIcon />
+        </Button>
+        {group.autoRun && (
+          <span
+            title="The runner claims cards from this column"
+            className="shrink-0 rounded bg-primary/15 px-1 text-xs font-medium text-primary"
+          >
+            auto
+          </span>
+        )}
+      </header>
+
+      <div
+        ref={setNodeRef}
+        className={`scroll-pane min-h-0 flex-1 overflow-y-auto pb-2 transition-colors ${
+          isOver ? "bg-primary/5" : ""
+        }`}
+      >
+        <SortableContext
+          items={tasks.map((task) => task.id)}
+          strategy={verticalListSortingStrategy}
+        >
+          <ul className="space-y-1.5">
+            {tasks.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                onOpen={(picked) => onOpen(picked, group)}
+                onToggleStep={onToggleStep}
+                onAction={onAction}
+                status={statuses[task.id]}
+                editor={editor}
+              />
+            ))}
+          </ul>
+        </SortableContext>
+
+        {tasks.length === 0 && !composing && (
+          <p className="px-1 py-3 text-xs text-muted-foreground">Nothing here.</p>
+        )}
+      </div>
+
+      <footer className="px-1.5 pb-1.5">
+        {composing ? (
+          <form
+            ref={composer}
+            className="space-y-1.5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submit();
+            }}
+          >
+            <Textarea
+              autoFocus
+              value={title}
+              onChange={(event) => setTitle(event.target.value)}
+              onBlur={(event) => {
+                // Blur into the pickers below is not a cancel.
+                if (
+                  event.relatedTarget instanceof Node &&
+                  composer.current?.contains(event.relatedTarget)
+                )
+                  return;
+                if (title.trim() === "") reset();
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  void submit();
+                }
+                if (event.key === "Escape") reset();
+              }}
+              rows={3}
+              placeholder="What should the agent do? A numbered list becomes a checklist."
+              className="resize-none bg-card"
+            />
+            {looksLikeGithub(title) && (
+              <p className="px-1 text-xs text-muted-foreground">
+                {resolving ? "Reading GitHub…" : "Enter fetches the title and branch"}
+              </p>
+            )}
+
+            {typed && (
+              <p
+                className={`px-1 text-xs ${known ? "text-muted-foreground" : "text-warning"}`}
+                role={known ? undefined : "alert"}
+              >
+                {known
+                  ? (known.description ?? `${known.scope} command`)
+                  : `${typed} is not a command on this machine`}
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-1.5">
+              <Combobox
+                value={agentId}
+                onChange={setAgentId}
+                options={[
+                  {
+                    value: "",
+                    label: defaultAgent ? `${defaultAgent.name} (default)` : "Default agent",
+                  },
+                  ...agents.map((agent) => ({
+                    value: agent.id,
+                    label: agent.name,
+                  })),
+                ]}
+                searchPlaceholder="Find an agent…"
+                className="h-7 text-xs"
+              />
+              <Combobox
+                value={model}
+                onChange={setModel}
+                allowCustom
+                options={[
+                  {
+                    value: "",
+                    label: chosenAgent?.model ? `${chosenAgent.model} (default)` : "Agent's model",
+                  },
+                  ...modelsFor(chosenAgent?.command ?? "").map((option) => ({
+                    value: option.id,
+                    label: option.id,
+                    hint: option.label,
+                  })),
+                ]}
+                searchPlaceholder="Find or type a model…"
+                className="h-7 text-xs"
+              />
+            </div>
+
+            <div className="flex justify-end gap-1.5">
+              <Button size="xs" variant="ghost" onClick={reset}>
+                Cancel
+              </Button>
+              <Button size="xs" type="submit" disabled={title.trim() === "" || resolving}>
+                Add card
+              </Button>
+            </div>
+          </form>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="w-full text-muted-foreground"
+            onClick={() => setComposing(true)}
+          >
+            + Add card
+          </Button>
+        )}
+      </footer>
+    </section>
+  );
+}
