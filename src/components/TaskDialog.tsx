@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
+import { AttachmentPicker } from "./Attachments";
 import { Button, Field, Input, Modal, Textarea } from "./ui";
+import { appendPath } from "@/lib/compose";
 import type { Task } from "@/lib/types";
 
 export interface TaskEdit {
@@ -51,6 +53,18 @@ export function TaskDialog({
             className="resize-none"
           />
         </Field>
+
+        <div className="flex w-full flex-col gap-1.5">
+          <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
+            Attachments
+          </span>
+          {/* The path goes into the detail as the file lands: the agent reads
+              the card, not the directory. */}
+          <AttachmentPicker
+            cardId={task.id}
+            onAttached={(file) => setBody((current) => appendPath(current, file.path))}
+          />
+        </div>
 
         <Field
           label="Follow-up"

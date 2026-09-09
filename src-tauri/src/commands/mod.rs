@@ -13,6 +13,7 @@ pub mod slash;
 pub mod system_terminal;
 pub mod tasks;
 pub mod terminal;
+pub mod tmp;
 pub mod worktrees;
 
 #[cfg(test)]

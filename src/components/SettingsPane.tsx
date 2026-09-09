@@ -7,6 +7,7 @@ import { McpSettings } from "./McpSettings";
 import { NotificationSettings } from "./NotificationSettings";
 import { PluginSettings } from "./PluginSettings";
 import { ThemeSettings } from "./ThemeSettings";
+import { TmpPanel } from "./TmpPanel";
 import { CheckField, Field } from "./ui";
 import { projects as projectApi } from "@/lib/ipc";
 import { useStore } from "@/lib/store";
@@ -63,6 +64,7 @@ export function SettingsPane() {
     <div className="scroll-pane mx-auto h-full max-w-3xl space-y-8 overflow-y-auto pb-8">
       {project && <ProjectAgent project={project} agents={agents} />}
       {project && <IndexPanel project={project} />}
+      <TmpPanel />
       <AgentSettings />
       <McpSettings />
       <PluginSettings />

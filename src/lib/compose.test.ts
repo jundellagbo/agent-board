@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { commandName, splitCard } from "./compose.ts";
+import { appendPath, commandName, splitCard } from "./compose.ts";
 
 test("one line is just a title", () => {
   assert.deepEqual(splitCard("Fix the flaky test"), {
@@ -53,4 +53,19 @@ test("a line that starts with a command says which one", () => {
   assert.equal(commandName("Fix the flaky test"), null);
   assert.equal(commandName("fix /usr/bin/thing"), null, "a path is not a command");
   assert.equal(commandName("/ not a command"), null);
+});
+
+test("an attached file is named where the writing left off", () => {
+  assert.equal(appendPath("Check this screenshot:", "/tmp/a.png"), "Check this screenshot: /tmp/a.png");
+  assert.equal(appendPath("", "/tmp/a.png"), "/tmp/a.png", "nothing typed yet is just the path");
+  assert.equal(
+    appendPath("Look at this\n", "/tmp/a.png"),
+    "Look at this\n/tmp/a.png",
+    "a newline already there puts it on its own line",
+  );
+  assert.equal(
+    appendPath("1. open it\n2. compare with", "/tmp/a.png"),
+    "1. open it\n2. compare with /tmp/a.png",
+    "a checklist stays a checklist",
+  );
 });

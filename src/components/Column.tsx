@@ -6,10 +6,13 @@ import { CSS } from "@dnd-kit/utilities";
 import { EllipsisIcon, GripVerticalIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { AttachmentPicker } from "./Attachments";
 import { Combobox } from "./Combobox";
+import { reserveCardId } from "@/lib/attachments";
+import { appendPath } from "@/lib/compose";
 import { commandName } from "@/lib/compose";
 import { clearDraft, readDraft, writeDraft } from "@/lib/drafts";
-import { slash as slashApi } from "@/lib/ipc";
+import { slash as slashApi, tmp as tmpApi } from "@/lib/ipc";
 import { modelsFor } from "@/lib/models";
 
 import { cardFromInput, looksLikeGithub } from "@/lib/github";
@@ -19,7 +22,7 @@ import { Button, Textarea } from "./ui";
 import { pickAgent } from "@/lib/agent";
 import type { Column as ColumnData } from "@/lib/board";
 import { useStore } from "@/lib/store";
-import type { SlashCommand, Task, TaskPatch } from "@/lib/types";
+import type { SlashCommand, Task, TaskPatch, TmpFile } from "@/lib/types";
 
 /** Columns and their card-drop areas share a board but not an identity. */
 export function columnDragId(groupId: string): string {
@@ -38,15 +41,22 @@ export function Column({
   onToggleStep,
   onAction,
   statuses,
+  files,
+  onOpenFile,
+  onRemoveFile,
   editor,
 }: {
   column: ColumnData;
-  onAdd: (patch: TaskPatch, groupId: string) => void;
+  onAdd: (patch: TaskPatch, groupId: string, id?: string) => void;
   onOpen: (task: Task, group: ColumnData["group"]) => void;
   onEdit: (group: ColumnData["group"]) => void;
   onToggleStep: (task: Task, index: number) => void;
   onAction: (task: Task, action: CardAction) => void;
   statuses: Record<string, string>;
+  /** Every card's tmp files, keyed by card — read once for the whole board. */
+  files: Record<string, TmpFile[]>;
+  onOpenFile: (file: TmpFile) => void;
+  onRemoveFile: (file: TmpFile) => void;
   editor?: string;
 }) {
   const { group, tasks } = column;
@@ -67,6 +77,11 @@ export function Column({
   const sortable = useSortable({ id: columnDragId(group.id), data: { type: "column" } });
   const [composing, setComposing] = useState(false);
   const [title, setTitle] = useState("");
+  // The card's id, chosen before the card exists so anything attached while
+  // composing is already filed under it — and so the path written into the
+  // card's own text stays right once the card is real.
+  const [draftId, setDraftId] = useState(reserveCardId);
+  const [attached, setAttached] = useState(false);
 
   const overLimit = group.wipLimit !== null && tasks.length > group.wipLimit;
 
@@ -109,11 +124,16 @@ export function Column({
   const typed = commandName(title);
   const known = typed ? commands.find((command) => command.name === typed) : undefined;
 
-  function reset() {
+  function reset({ keepFiles = false } = {}) {
     setTitle("");
     setAgentId("");
     setModel("");
     setComposing(false);
+    // Abandoning the card abandons what was attached to it: those files are
+    // filed under an id no card will ever have.
+    if (attached && !keepFiles) void tmpApi.clear(draftId).catch(() => undefined);
+    setAttached(false);
+    setDraftId(reserveCardId());
     // Cancelling is a decision to discard; navigating away is not.
     clearDraft(group.id);
   }
@@ -123,8 +143,8 @@ export function Column({
     setResolving(true);
     const patch = await cardFromInput(title);
     setResolving(false);
-    onAdd({ ...patch, agentId: agentId || null, model: model || null }, group.id);
-    reset();
+    onAdd({ ...patch, agentId: agentId || null, model: model || null }, group.id, draftId);
+    reset({ keepFiles: true });
   }
 
   return (
@@ -202,6 +222,9 @@ export function Column({
                 onToggleStep={onToggleStep}
                 onAction={onAction}
                 status={statuses[task.id]}
+                files={files[task.id]}
+                onOpenFile={onOpenFile}
+                onRemoveFile={onRemoveFile}
                 editor={editor}
               />
             ))}
@@ -234,7 +257,7 @@ export function Column({
                   composer.current?.contains(event.relatedTarget)
                 )
                   return;
-                if (title.trim() === "") reset();
+                if (title.trim() === "" && !attached) reset();
               }}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
@@ -263,6 +286,17 @@ export function Column({
                   : `${typed} is not a command on this machine`}
               </p>
             )}
+
+            {/* The path lands in the card's text as the file does: the agent
+                reads the card, not the directory. */}
+            <AttachmentPicker
+              compact
+              cardId={draftId}
+              onAttached={(file) => {
+                setAttached(true);
+                setTitle((current) => appendPath(current, file.path));
+              }}
+            />
 
             <div className="grid grid-cols-2 gap-1.5">
               <Combobox
@@ -302,7 +336,7 @@ export function Column({
             </div>
 
             <div className="flex justify-end gap-1.5">
-              <Button size="xs" variant="ghost" onClick={reset}>
+              <Button size="xs" variant="ghost" onClick={() => reset()}>
                 Cancel
               </Button>
               <Button size="xs" type="submit" disabled={title.trim() === "" || resolving}>

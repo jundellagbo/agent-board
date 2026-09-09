@@ -45,3 +45,16 @@ export function splitCard(input: string): Composed {
   const body = lines.join("\n").trimEnd();
   return { title, body: body === "" ? null : body };
 }
+
+/**
+ * Names a file in the text someone is writing, so the agent is told where it
+ * is — an agent cannot look at a screenshot it was never given the path to.
+ *
+ * Appended where the cursor left off rather than on a line of its own: a card
+ * that is a checklist stays one that way, and text already ending in a newline
+ * puts the path on that new line by itself.
+ */
+export function appendPath(text: string, path: string): string {
+  if (text.trim() === "") return path;
+  return /\s$/.test(text) ? `${text}${path}` : `${text} ${path}`;
+}

@@ -27,3 +27,14 @@ test("a step that is not on the card is ignored", () => {
 test("the same step announced twice is one step", () => {
   assert.deepEqual(detectSteps(`${STEP_MARK} 2\nmore work\n${STEP_MARK} 2\n`, 3), [1]);
 });
+
+// Agents draw their output in a box with a bullet in front of every line, so
+// the mark is never at the start of anything the terminal actually shows.
+test("a step announced inside the agent's own box still ticks", () => {
+  assert.deepEqual(detectSteps(`│ ⏺ ${STEP_MARK} 2 │\n`, 3), [1]);
+});
+
+test("a wrapped instruction that begins with the mark ticks nothing", () => {
+  assert.deepEqual(detectSteps(`${STEP_MARK} followed by its number\n`, 3), []);
+  assert.deepEqual(detectSteps(`${STEP_MARK} 2 when you finish it\n`, 3), []);
+});

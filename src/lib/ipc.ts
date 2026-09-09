@@ -18,6 +18,8 @@ import type {
   SlashCommand,
   Plugin,
   Editor,
+  TmpFile,
+  TmpKind,
 } from "./types";
 
 // Every Rust error serializes to a string, so surface it as a real Error with
@@ -78,8 +80,10 @@ export const groups = {
 
 export const tasks = {
   list: (projectId: string) => call<Task[]>("list_tasks", { projectId }),
-  create: (projectId: string, patch: TaskPatch, groupId?: string) =>
-    call<Task>("create_task", { projectId, groupId: groupId ?? null, patch }),
+  /** `id` is reserved by the composer, so files attached before the card
+   *  existed are already under the id it ends up with. */
+  create: (projectId: string, patch: TaskPatch, groupId?: string, id?: string) =>
+    call<Task>("create_task", { projectId, groupId: groupId ?? null, patch, id: id ?? null }),
   update: (id: string, patch: TaskPatch) => call<Task>("update_task", { id, patch }),
   remove: (id: string) => call<void>("delete_task", { id }),
   move: (id: string, groupId: string, position: number) =>
@@ -123,6 +127,28 @@ function decode(base64: string): Uint8Array {
   for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
   return bytes;
 }
+
+/** A card's scratch files: what it was given, and what came back. */
+export const tmp = {
+  /** One card's files, or the whole store when no card is named. */
+  list: (cardId?: string | null) => call<TmpFile[]>("list_tmp", { cardId: cardId ?? null }),
+  /** `contents` is base64, so anything pasted or picked arrives intact. */
+  add: (cardId: string, kind: TmpKind, name: string, contents: string) =>
+    call<TmpFile>("add_tmp", { cardId, kind, name, contents }),
+  read: (path: string) => call<string>("read_tmp", { path }),
+  /** Interactive region capture, straight onto the card. */
+  screenshot: (cardId: string) => call<TmpFile>("screenshot_tmp", { cardId }),
+  /** The clipboard's image, for a paste the webview handed us nothing for. */
+  paste: (cardId: string) => call<TmpFile>("paste_tmp", { cardId }),
+  remove: (path: string) => call<void>("delete_tmp", { path }),
+  /** Everything a card collected, for when the card itself goes. */
+  clear: (cardId: string) => call<void>("clear_tmp", { cardId }),
+  reveal: (path: string) => call<string>("reveal_tmp", { path }),
+
+  /** Fires whenever a card's files change, whoever changed them. */
+  onChanged: (handler: (cardId: string) => void) =>
+    listen<{ cardId: string }>("tmp://changed", ({ payload }) => handler(payload.cardId)),
+};
 
 export const agents = {
   list: () => call<Agent[]>("list_agents"),

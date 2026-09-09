@@ -36,6 +36,7 @@ function task(overrides: Partial<Task>): Task {
     groupId: "g",
     title: "work",
     body: null,
+    plan: null,
     position: 0,
     agentId: null,
     model: null,

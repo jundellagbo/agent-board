@@ -18,15 +18,28 @@ export const ACCENTS: { name: string; light: string; dark: string }[] = [
 ];
 
 // Stacks, not webfonts: the app has to look right offline and on first paint.
+// The default leads each list, because an unknown font name falls back to the
+// head of it — a stored setting from an older build must land on the default
+// rather than on whatever happens to be first.
 export const UI_FONTS: { name: string; stack: string }[] = [
-  { name: "Geist", stack: "var(--font-geist-sans), system-ui, sans-serif" },
   { name: "System", stack: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" },
+  { name: "Geist", stack: "var(--font-geist-sans), system-ui, sans-serif" },
   { name: "Serif", stack: "ui-serif, Georgia, serif" },
 ];
 
+// The terminal is the one place a missing glyph shows: an agent draws its boxes
+// and spinners out of characters, and a face without them borrows from wherever
+// it can and misaligns the whole line. The desktop's own monospace face has the
+// full box-drawing range and is already loaded, which the webfonts below are not
+// until something asks for them.
 export const CODE_FONTS: { name: string; stack: string }[] = [
-  { name: "Geist Mono", stack: "var(--font-geist-mono), ui-monospace, monospace" },
   { name: "System Mono", stack: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" },
+  {
+    name: "JetBrains Mono",
+    stack:
+      'var(--font-terminal-mono), "DejaVu Sans Mono", "Liberation Mono", Menlo, Consolas, ui-monospace, monospace',
+  },
+  { name: "Geist Mono", stack: "var(--font-geist-mono), ui-monospace, monospace" },
 ];
 
 export const DEFAULT_THEME: Theme = {

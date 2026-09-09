@@ -1,4 +1,4 @@
-import { stripAnsi } from "./approval.ts";
+import { markLines } from "./marks.ts";
 
 /**
  * Some cards deserve a plan first; most do not. Rather than guess from the
@@ -24,25 +24,21 @@ export type PlanDecision = { type: "none" } | { type: "plan"; body: string };
  * a card was claimed and stayed there whatever the agent did.
  */
 export function planStarted(output: string): boolean {
-  const lines = stripAnsi(output).split("\n");
-  const start = lines.findIndex((line) => line.trim() === PLAN_START);
+  const lines = markLines(output);
+  const start = lines.findIndex((line) => line === PLAN_START);
   if (start === -1) return false;
-  return !lines.some((line, index) => index > start && line.trim() === PLAN_END);
+  return !lines.some((line, index) => index > start && line === PLAN_END);
 }
 
 /** Reads the decision out of the output, or nothing if it has not been made. */
 export function detectPlan(output: string): PlanDecision | null {
-  const lines = stripAnsi(output).split("\n");
+  const lines = markLines(output);
 
-  const start = lines.findIndex((line) => line.trim() === PLAN_START);
+  const start = lines.findIndex((line) => line === PLAN_START);
   if (start !== -1) {
-    const end = lines.findIndex((line, index) => index > start && line.trim() === PLAN_END);
+    const end = lines.findIndex((line, index) => index > start && line === PLAN_END);
     if (end !== -1) {
-      const body = lines
-        .slice(start + 1, end)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .join("\n");
+      const body = lines.slice(start + 1, end).filter(Boolean).join("\n");
       if (body !== "") return { type: "plan", body };
     }
     // A plan that has started but not closed is still being written.
@@ -51,6 +47,6 @@ export function detectPlan(output: string): PlanDecision | null {
 
   // Matched on its own line so the instruction, which names the mark, does not
   // read as the decision.
-  if (lines.some((line) => line.trim() === NO_PLAN)) return { type: "none" };
+  if (lines.some((line) => line === NO_PLAN)) return { type: "none" };
   return null;
 }

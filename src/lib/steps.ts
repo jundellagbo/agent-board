@@ -1,4 +1,4 @@
-import { stripAnsi } from "./approval.ts";
+import { markLines, markPayload } from "./marks.ts";
 
 /**
  * How an agent says it has finished one item of a card's checklist.
@@ -26,14 +26,13 @@ export function stepInstruction(count?: number): string {
 export function detectSteps(output: string, count = Number.POSITIVE_INFINITY): number[] {
   const seen: number[] = [];
 
-  for (const line of stripAnsi(output).split("\n")) {
-    const trimmed = line.trim();
-    // Anchored at the start of the line: the instruction names the mark, and
-    // agents quote their instructions back constantly.
-    if (!trimmed.startsWith(STEP_MARK)) continue;
+  for (const line of markLines(output)) {
+    // The mark and a number, and nothing else on the line: the instruction
+    // names the mark, and agents quote their instructions back constantly.
+    const payload = markPayload(line, STEP_MARK);
+    if (payload === null || !/^\d+$/.test(payload)) continue;
 
-    const number = Number.parseInt(trimmed.slice(STEP_MARK.length).trim(), 10);
-    if (!Number.isInteger(number)) continue;
+    const number = Number.parseInt(payload, 10);
 
     const index = number - 1;
     if (index < 0 || index >= count || seen.includes(index)) continue;

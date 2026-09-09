@@ -9,6 +9,9 @@ pub struct Output {
     pub ok: bool,
     pub stdout: String,
     pub stderr: String,
+    /// Untrimmed, undecoded stdout, for the commands whose output is not text —
+    /// a clipboard image comes back as PNG bytes, which lossy UTF-8 destroys.
+    pub bytes: Vec<u8>,
 }
 
 /// Runs a command with a deadline, reading its output on separate threads.
@@ -53,16 +56,15 @@ pub fn run(mut command: Command, timeout: Duration) -> Result<Output> {
         std::thread::sleep(Duration::from_millis(40));
     };
 
-    let text = |handle: std::thread::JoinHandle<Vec<u8>>| {
-        String::from_utf8_lossy(&handle.join().unwrap_or_default())
-            .trim()
-            .to_string()
-    };
+    let collect = |handle: std::thread::JoinHandle<Vec<u8>>| handle.join().unwrap_or_default();
+    let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).trim().to_string();
 
+    let bytes = collect(stdout);
     Ok(Output {
         ok: status.success(),
-        stdout: text(stdout),
-        stderr: text(stderr),
+        stdout: text(&bytes),
+        stderr: text(&collect(stderr)),
+        bytes,
     })
 }
 

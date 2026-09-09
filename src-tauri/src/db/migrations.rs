@@ -54,6 +54,10 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0013_unattended_defaults",
         include_str!("../../migrations/0013_unattended_defaults.sql"),
     ),
+    (
+        "0014_task_plan",
+        include_str!("../../migrations/0014_task_plan.sql"),
+    ),
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {

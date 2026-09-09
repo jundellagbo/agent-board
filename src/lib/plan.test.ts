@@ -50,3 +50,10 @@ test("planning is only the stretch between the marks", () => {
   assert.equal(planStarted(`${NO_PLAN}\n`), false, "a card that needs no plan never shows one");
   assert.equal(planStarted(PLAN_INSTRUCTION), false, "quoting the instruction is not planning");
 });
+
+test("a plan drawn inside the agent's box is still read", () => {
+  const decision = detectPlan(
+    `│ ⏺ ${PLAN_START}      │\n│ 1. open the site │\n│ 2. fix it        │\n│ ⏺ ${PLAN_END}    │\n`,
+  );
+  assert.deepEqual(decision, { type: "plan", body: "1. open the site\n2. fix it" });
+});

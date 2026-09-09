@@ -28,8 +28,10 @@
   --success: oklch(0.55 0.14 150);
 
   --radius: 4px;
-  --font-ui: var(--font-geist-sans), system-ui, sans-serif;
-  --font-code: var(--font-geist-mono), ui-monospace, monospace;
+  /* Matches the head of UI_FONTS and CODE_FONTS, so the first frame is not a
+     different face than the app settles on once the stored theme loads. */
+  --font-ui: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --background: var(--bg);
   --foreground: var(--text);
@@ -187,5 +189,28 @@
   .scroll-pane::-webkit-scrollbar-thumb:hover {
     background: var(--text-muted);
     background-clip: padding-box;
+  }
+
+  /* An agent working, with no number to put on it. Only the bar inside the rail
+     moves — the rail itself is always there, so the card never changes height. */
+  .activity-bar {
+    animation: activity 1.6s ease-in-out infinite;
+  }
+
+  @keyframes activity {
+    from {
+      transform: translateX(-110%);
+    }
+    to {
+      transform: translateX(210%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .activity-bar {
+      animation: none;
+      width: 100%;
+      opacity: 0.5;
+    }
   }
 }

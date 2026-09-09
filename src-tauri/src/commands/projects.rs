@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use rusqlite::{params, Connection};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::commands::groups::seed_defaults;
 use crate::commands::orgs::non_empty;
@@ -110,7 +110,24 @@ pub fn update_project(
 }
 
 #[tauri::command]
-pub fn delete_project(db: State<Db>, id: String) -> Result<()> {
+pub fn delete_project(app: AppHandle, db: State<Db>, id: String) -> Result<()> {
+    // The cards go with the project, and a card's scratch files are the one part
+    // of it that lives outside the database — deleting the row alone strands
+    // them on disk with nothing left that could ever name them again. A failure
+    // here must not leave the project undeletable.
+    let cards: Vec<String> = db.with(|conn| {
+        let mut statement = conn.prepare("SELECT id FROM tasks WHERE project_id = ?1")?;
+        let ids = statement
+            .query_map(params![id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(ids)
+    })?;
+    for card in cards {
+        if let Err(error) = crate::commands::tmp::clear(&app, &card) {
+            log::warn!("could not remove the tmp files for {card}: {error}");
+        }
+    }
+
     db.with(|conn| {
         conn.execute("DELETE FROM projects WHERE id = ?1", params![id])?;
         Ok(())

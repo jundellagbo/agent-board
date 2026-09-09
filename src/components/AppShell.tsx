@@ -36,6 +36,26 @@ export function AppShell() {
     groups: BoardGroup[];
   } | null>(null);
 
+  // The runner closes a run when the agent announces an outcome; this is for
+  // the agent that never does, so a card is never stranded on Running.
+  const finishTask = useCallback(async (taskId: string, outcome: "done" | "blocked") => {
+    const [run] = await runApi.list(taskId).catch(() => []);
+    const session = terminals.find(taskId);
+    const code = outcome === "done" ? 0 : 1;
+    try {
+      if (run && run.finishedAt === null) {
+        // finish_run also routes the card by that code.
+        await runApi.finish(run.id, code, "exited", terminals.transcript(session?.id ?? ""));
+      } else {
+        await taskApi.update(taskId, { runState: outcome === "done" ? "done" : "failed" });
+      }
+      setBoardVersion((version) => version + 1);
+      setSessionError(null);
+    } catch (cause) {
+      setSessionError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
   /** Starts an agent on a card. Only ever from an explicit Run. */
   const runTask = useCallback(
     async (task: Task, group: BoardGroup, groups: BoardGroup[]) => {
@@ -69,6 +89,11 @@ export function AppShell() {
           },
           title: task.title,
           taskId: task.id,
+          // A card started by hand ends the same way as one the runner started:
+          // on the agent's own announcement. Without this it sat on Running
+          // until someone pressed Finished by hand.
+          onOutcome: (outcome) => void finishTask(task.id, outcome),
+          onIdle: () => void finishTask(task.id, "done"),
           onWaiting: (waiting) => {
             if (waiting) void announceApproval(notifications, task, project.name);
             void taskApi
@@ -83,7 +108,7 @@ export function AppShell() {
         setSessionError(cause instanceof Error ? cause.message : String(cause));
       }
     },
-    [project, agents, notifications],
+    [project, agents, notifications, finishTask],
   );
 
   /**
@@ -105,26 +130,6 @@ export function AppShell() {
     },
     [setView],
   );
-
-  // The runner closes a run when the agent announces an outcome; this is for
-  // the agent that never does, so a card is never stranded on Running.
-  const finishTask = useCallback(async (taskId: string, outcome: "done" | "blocked") => {
-    const [run] = await runApi.list(taskId).catch(() => []);
-    const session = terminals.find(taskId);
-    const code = outcome === "done" ? 0 : 1;
-    try {
-      if (run && run.finishedAt === null) {
-        // finish_run also routes the card by that code.
-        await runApi.finish(run.id, code, "exited", terminals.transcript(session?.id ?? ""));
-      } else {
-        await taskApi.update(taskId, { runState: outcome === "done" ? "done" : "failed" });
-      }
-      setBoardVersion((version) => version + 1);
-      setSessionError(null);
-    } catch (cause) {
-      setSessionError(cause instanceof Error ? cause.message : String(cause));
-    }
-  }, []);
 
   return (
     <div className="flex h-screen w-screen">

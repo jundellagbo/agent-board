@@ -16,15 +16,17 @@ import {
   horizontalListSortingStrategy,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
+import { AttachmentPreview } from "./Attachments";
 import { Column, columnDragId, groupIdFromDrag } from "./Column";
 import { Button, CheckField, Modal } from "./ui";
 import { GroupDialog } from "./GroupDialog";
 import { TaskCardBody, type CardAction } from "./TaskCard";
 import { TaskDialog } from "./TaskDialog";
+import { useAttachments } from "@/lib/attachments";
 import { useBoard } from "@/lib/board";
-import { toggleStep } from "@/lib/checklist";
+import { parseChecklist, toggleStep } from "@/lib/checklist";
 import { withFollowUp } from "@/lib/followup";
 import { nextClaim } from "@/lib/claim";
 import { announceApproval, announceCompletion } from "@/lib/notify";
@@ -33,7 +35,7 @@ import { start } from "@/lib/runner";
 import { editors as editorApi, projects as projectApi, runs as runApi } from "@/lib/ipc";
 import { useStore } from "@/lib/store";
 import * as terminals from "@/lib/terminals";
-import type { BoardGroup, Editor, Project, Task } from "@/lib/types";
+import type { BoardGroup, Editor, Project, Task, TmpFile } from "@/lib/types";
 
 export function Board({
   project,
@@ -70,6 +72,8 @@ export function Board({
   // done from a menu click.
   const [removing, setRemoving] = useState<Task | null>(null);
   const [editingCard, setEditingCard] = useState<Task | null>(null);
+  const [previewing, setPreviewing] = useState<TmpFile | null>(null);
+  const [planFor, setPlanFor] = useState<Task | null>(null);
   // Whatever this machine has; the menu says its name rather than "an editor".
   const [editor, setEditor] = useState<Editor | null>(null);
 
@@ -80,6 +84,13 @@ export function Board({
       .catch(() => setEditor(null));
   }, []);
   const { agents, notifications, run } = useStore();
+  // The whole store in one call, rather than a listener and a read per card.
+  const { files: tmpFiles, remove: removeFile, reveal: revealFile } = useAttachments();
+  const filesByCard = useMemo(() => {
+    const byCard: Record<string, TmpFile[]> = {};
+    for (const file of tmpFiles) (byCard[file.cardId] ??= []).push(file);
+    return byCard;
+  }, [tmpFiles]);
   // One subscription for the whole board rather than one per card.
   const sessions = useSyncExternalStore(terminals.subscribe, terminals.list, terminals.empty);
   const statuses = Object.fromEntries(
@@ -108,7 +119,7 @@ export function Board({
     void start(
       claim.task,
       claim.group,
-      { project, agents, groups },
+      { project, agents, groups, cards: columns.flatMap((column) => column.tasks) },
       (exitCode) => {
         void announceCompletion(notifications, claim.task, project.name, exitCode);
         void refresh();
@@ -139,6 +150,11 @@ export function Board({
       return;
     }
 
+    if (action === "plan") {
+      setPlanFor(task);
+      return;
+    }
+
     if (action === "open") {
       // The project root, not the card's worktree: an editor window is where
       // you read the whole codebase, and a worktree is a partial view of it.
@@ -147,6 +163,14 @@ export function Board({
       } catch (cause) {
         setOpenError(cause instanceof Error ? cause.message : String(cause));
       }
+      return;
+    }
+
+    if (action === "files") {
+      // The store lives outside the project, so the file manager is the only
+      // place to actually work with what is in it.
+      const [file] = filesByCard[task.id] ?? [];
+      if (file) void revealFile(file.path);
       return;
     }
 
@@ -289,7 +313,10 @@ export function Board({
                 }
                 onAction={(task, action) => void control(task, action)}
                 statuses={statuses}
-              editor={editor?.name}
+                files={filesByCard}
+                onOpenFile={setPreviewing}
+                onRemoveFile={(file) => void removeFile(file.path)}
+                editor={editor?.name}
               />
             ))}
           </SortableContext>
@@ -311,6 +338,17 @@ export function Board({
           )}
         </DragOverlay>
       </DndContext>
+
+      {previewing && (
+        <AttachmentPreview
+          file={previewing}
+          onClose={() => setPreviewing(null)}
+          onRemove={() => void removeFile(previewing.path)}
+          onReveal={() => void revealFile(previewing.path)}
+        />
+      )}
+
+      {planFor && <PlanDialog task={planFor} onClose={() => setPlanFor(null)} />}
 
       {editingCard && (
         <TaskDialog
@@ -377,5 +415,37 @@ export function Board({
         />
       )}
     </div>
+  );
+}
+
+/**
+ * What the agent said it would do, for a card whose plan is buried in a
+ * terminal somewhere. A card that was never planned says so rather than
+ * showing an empty box.
+ */
+function PlanDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const steps = parseChecklist(task.plan);
+
+  return (
+    <Modal title={`Plan — ${task.title}`} onClose={onClose} width="sm:max-w-lg">
+      {steps.length > 0 ? (
+        <ol className="space-y-1.5 text-sm">
+          {steps.map((step, index) => (
+            <li key={`${index}-${step.text}`} className="flex items-start gap-2">
+              <span className="font-mono text-xs text-muted-foreground tabular-nums">
+                {index + 1}.
+              </span>
+              <span className={step.done ? "text-muted-foreground line-through" : ""}>
+                {step.text}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="text-sm whitespace-pre-wrap text-muted-foreground">
+          {task.plan?.trim() || "No plan yet — the agent has not written one for this card."}
+        </p>
+      )}
+    </Modal>
   );
 }

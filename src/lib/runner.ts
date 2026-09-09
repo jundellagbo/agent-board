@@ -1,5 +1,6 @@
 import {
   isCommandCard,
+  parallelWork,
   pickAgent,
   pickModel,
   priorWork,
@@ -14,7 +15,7 @@ import { REMOTE_COMMAND } from "./remote";
 import { stepInstruction } from "./steps";
 import { runs as runApi, tasks as taskApi, worktrees as worktreeApi } from "./ipc";
 import * as terminals from "./terminals";
-import type { Agent, BoardGroup, Project, Task } from "./types";
+import type { Agent, BoardGroup, Project, Task, TaskRun } from "./types";
 
 export { nextClaim };
 export type { Column };
@@ -22,7 +23,7 @@ export type { Column };
 export async function start(
   card: Task,
   group: BoardGroup,
-  context: { project: Project; agents: Agent[]; groups: BoardGroup[] },
+  context: { project: Project; agents: Agent[]; groups: BoardGroup[]; cards: Task[] },
   onFinished: (exitCode: number) => void,
   onProgress?: () => void,
   onWaiting?: (waiting: boolean) => void,
@@ -39,18 +40,27 @@ export async function start(
   const task = (await worktreeApi.ensure(card.id).catch(() => null)) ?? card;
   const agent = pickAgent(agents, { task, group, project });
   const cwd = task.worktreePath ?? project.path;
+  const columnName = (groupId: string | null) =>
+    context.groups.find((column) => column.id === groupId)?.name ?? "an earlier column";
+
   // What earlier columns did with this card, so the agent picking it up now is
-  // not starting from nothing.
-  const history = priorWork(
-    await runApi.list(task.id).catch(() => []),
-    (groupId) =>
-      context.groups.find((column) => column.id === groupId)?.name ?? "an earlier column",
-  );
+  // not starting from nothing — and what the rest of the board is doing
+  // meanwhile, so it does not collide with a card it cannot see.
+  const history = [
+    priorWork(await runApi.list(task.id).catch(() => []), columnName),
+    parallelWork(context.cards, task, columnName),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   // A card whose body is a checklist gets its boxes ticked as the agent works,
   // but only if the agent says which step it just finished — nothing else in the
   // output distinguishes a finished step from a mention of one.
+  //
+  // The plan the agent writes is kept apart from that body. The card's text is
+  // the person's; a plan written over it loses what they actually asked for.
   let body = task.body ?? "";
+  let plan = task.plan ?? "";
   const steps = parseChecklist(body).length;
   const stepPrompt =
     steps > 0 ? stepInstruction(steps) : group.plans ? stepInstruction() : null;
@@ -82,6 +92,29 @@ export async function start(
 
   // Assigned by the open below; the callbacks that use it only fire afterwards.
   let sessionId = "";
+
+  /**
+   * Closes the run, once.
+   *
+   * Three things can end a run — the agent announcing an outcome, the session
+   * going quiet, or the process exiting — and for an interactive agent the
+   * first of those is the only one that happens promptly: it finishes, says so,
+   * and sits at its prompt indefinitely. The announcement was being detected
+   * and then dropped on the floor, which is what left cards on Running long
+   * after the work was done. Whichever arrives first wins; the later ones would
+   * otherwise re-finish the run and route the card a second time.
+   */
+  let closed = false;
+  const close = async (
+    exitCode: number,
+    status: TaskRun["status"],
+    transcript?: string,
+  ): Promise<void> => {
+    if (closed) return;
+    closed = true;
+    await runApi.finish(run.id, exitCode, status, transcript).catch(() => undefined);
+    onFinished(exitCode);
+  };
 
   try {
     sessionId = await terminals.open({
@@ -121,21 +154,26 @@ export async function start(
           .catch(() => undefined);
       },
       onPlan: (decision) => {
-        if (decision.type === "plan") body = decision.body;
+        if (decision.type === "plan") plan = decision.body;
         void taskApi
           .update(task.id, {
             runState: "running",
-            ...(decision.type === "plan" ? { body: decision.body } : {}),
+            ...(decision.type === "plan" ? { plan: decision.body } : {}),
           })
           .then(() => onProgress?.())
           .catch(() => undefined);
       },
+      // A step ticks the list it was counted from: the card's own checklist when
+      // the person wrote one, otherwise the plan the agent wrote for itself.
       onStep: (step) => {
-        const next = markStep(body, step - 1);
-        if (next === body) return;
-        body = next;
+        const ticking = steps > 0 ? body : plan;
+        const next = markStep(ticking, step - 1);
+        if (next === ticking) return;
+
+        if (steps > 0) body = next;
+        else plan = next;
         void taskApi
-          .update(task.id, { body })
+          .update(task.id, steps > 0 ? { body: next } : { plan: next })
           .then(() => onProgress?.())
           .catch(() => undefined);
       },
@@ -146,27 +184,22 @@ export async function start(
           .then(() => onProgress?.())
           .catch(() => undefined);
       },
+      // The agent said it had finished, or that it could not. This is the
+      // normal end of a run: an interactive agent does not exit afterwards.
+      onOutcome: (outcome, transcript) =>
+        void close(outcome === "done" ? 0 : 1, outcome === "done" ? "exited" : "blocked", transcript),
+      // It stopped working and never said so.
+      onIdle: (transcript) => void close(0, "exited", transcript),
       // The transcript tail becomes the next column's context. It arrives with
       // the exit rather than being looked up, so a command that dies during
       // spawn still reports what it managed to print.
-      // The agent stopped working and never said so. Close the run as finished
-      // rather than leaving the card claiming to be running forever.
-      onIdle: (transcript) => {
-        void (async () => {
-          await runApi.finish(run.id, 0, "exited", transcript).catch(() => undefined);
-          onFinished(0);
-        })();
-      },
-      onExit: async (code, transcript) => {
-        await runApi.finish(run.id, code, code === 0 ? "exited" : "error", transcript);
-        onFinished(code);
-      },
+      onExit: (code, transcript) =>
+        void close(code, code === 0 ? "exited" : "error", transcript),
     });
   } catch (cause) {
     // The card is already claimed at this point; close the run out so it does
     // not sit in the running lane forever.
-    await runApi.finish(run.id, -1, "error");
-    onFinished(-1);
+    await close(-1, "error");
     throw cause;
   }
 }

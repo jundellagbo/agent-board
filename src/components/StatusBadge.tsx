@@ -43,7 +43,9 @@ const STATES: Record<
     icon: HandIcon,
   },
   blocked: {
-    label: "Needs attention",
+    // Short enough to sit in the card's corner without crowding the title, and
+    // the same word the terminal's own button uses for this.
+    label: "Blocked",
     className: "bg-warning/20 text-warning",
     icon: TriangleAlertIcon,
   },

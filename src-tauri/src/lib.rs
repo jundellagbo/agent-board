@@ -84,6 +84,14 @@ pub fn run() {
             commands::terminal::pty_resize,
             commands::terminal::pty_kill,
             commands::terminal::pty_sessions,
+            commands::tmp::list_tmp,
+            commands::tmp::add_tmp,
+            commands::tmp::read_tmp,
+            commands::tmp::screenshot_tmp,
+            commands::tmp::paste_tmp,
+            commands::tmp::delete_tmp,
+            commands::tmp::clear_tmp,
+            commands::tmp::reveal_tmp,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
@@ -125,6 +133,12 @@ pub fn run() {
             }
             app.manage(db);
             app.manage(pty::PtyManager::default());
+
+            // Not fatal: without it the tmp lists still work, they just stop
+            // noticing files that something other than this app put there.
+            if let Err(error) = commands::tmp::watch(app.handle().clone()) {
+                log::warn!("could not watch the tmp store: {error}");
+            }
 
             Ok(())
         })

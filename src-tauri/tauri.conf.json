@@ -13,6 +13,7 @@
     "windows": [
       {
         "title": "Agent Board",
+        "maximized": true,
         "width": 1400,
         "height": 900,
         "resizable": true,

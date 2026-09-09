@@ -126,8 +126,8 @@ export function useBoard(projectId: string | null) {
     },
     removeGroup: (id: string, moveTasksTo?: string) =>
       run(() => groupApi.remove(id, moveTasksTo)),
-    addTask: (patch: TaskPatch, groupId: string) =>
-      projectId ? run(() => taskApi.create(projectId, patch, groupId)) : Promise.resolve(),
+    addTask: (patch: TaskPatch, groupId: string, id?: string) =>
+      projectId ? run(() => taskApi.create(projectId, patch, groupId, id)) : Promise.resolve(),
     updateTask: (id: string, patch: TaskPatch) => run(() => taskApi.update(id, patch)),
     removeTask: (id: string) => run(() => taskApi.remove(id)),
   };

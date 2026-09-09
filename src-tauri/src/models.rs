@@ -136,6 +136,9 @@ pub struct Task {
     pub group_id: String,
     pub title: String,
     pub body: Option<String>,
+    /// What the agent said it would do. Never the card's own text: that is the
+    /// person's, and a plan is only ever shown beside it.
+    pub plan: Option<String>,
     pub position: i64,
     pub agent_id: Option<String>,
     /// Overrides the agent's own model for this card only.
@@ -158,7 +161,7 @@ impl Task {
     pub const COLUMNS: &'static str =
         "id, project_id, group_id, title, body, position, agent_id, model, remote, github_url, \
          github_kind, github_number, branch, worktree_path, run_state, last_run_id, created_at, \
-         updated_at";
+         updated_at, plan";
 
     pub fn from_row(row: &Row) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -180,6 +183,7 @@ impl Task {
             last_run_id: row.get(15)?,
             created_at: row.get(16)?,
             updated_at: row.get(17)?,
+            plan: row.get(18)?,
         })
     }
 }

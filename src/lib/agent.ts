@@ -1,5 +1,5 @@
 import { commandName } from "./compose.ts";
-import type { Agent, BoardGroup, Project, Task, TaskRun } from "./types";
+import type { Agent, BoardGroup, Project, RunState, Task, TaskRun } from "./types";
 
 /** What the agent is told to do: the column's standing instruction, then the
  * card, then whatever earlier columns already did with it. */
@@ -59,9 +59,7 @@ export function resolveCommand(
   const withoutEmpty = template.replace(EMPTY_FLAG, (match, key: string) =>
     values[key] === "" ? "" : match,
   );
-  return withoutEmpty
-    .replace(PLACEHOLDERS, (_, key: string) => quote(values[key] ?? ""))
-    .trim();
+  return withoutEmpty.replace(PLACEHOLDERS, (_, key: string) => quote(values[key] ?? "")).trim();
 }
 
 /** Most specific wins, the same order as the agent: card, column, agent. */
@@ -91,6 +89,71 @@ export function pickAgent(
   );
 }
 
+/** How a card's state reads to another card's agent. */
+const STATE: Partial<Record<RunState, string>> = {
+  queued: "waiting to start",
+  planning: "planning",
+  running: "being worked on now",
+  needs_approval: "waiting on an approval",
+  blocked: "blocked, waiting for a person",
+  done: "finished",
+  failed: "failed",
+};
+
+/** The first sentence of a plan, which is the part that says what it is. */
+function gist(plan: string, limit: number): string {
+  const line =
+    plan
+      .trim()
+      .split("\n")
+      .find((text) => text.trim() !== "")
+      ?.trim() ?? "";
+  return line.length > limit ? `${line.slice(0, limit).trimEnd()}…` : line;
+}
+
+/**
+ * What the other cards in this project are up to.
+ *
+ * Every card runs in its own worktree, so one agent cannot see another's edits
+ * at all — it will happily rewrite the same file from the same starting point.
+ * Knowing who else is out there is what stops that, and knowing which branch
+ * they are on is what lets an agent go and look if it matters.
+ *
+ * Deliberately a roster and not a transcript: this is appended to every prompt
+ * on the board, so it is capped at both ends — the cards worth naming, and how
+ * much each one may say. Cards with nothing behind them are left out entirely,
+ * because "someone might do this later" is not worth paying for on every run.
+ */
+export function parallelWork(
+  cards: Task[],
+  current: Task,
+  columnName: (groupId: string | null) => string,
+  options: { limit?: number; gist?: number } = {},
+): string {
+  const { limit = 6, gist: gistLimit = 120 } = options;
+
+  const others = cards
+    .filter((card) => card.id !== current.id)
+    .filter((card) => card.plan?.trim() || card.branch || STATE[card.runState])
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    .slice(0, limit);
+  if (others.length === 0) return "";
+
+  const entries = others.map((card) => {
+    const state = STATE[card.runState];
+    const where = [`in "${columnName(card.groupId)}"`, state].filter(Boolean).join(", ");
+    const branch = card.branch ? ` on branch \`${card.branch}\`` : "";
+    const plan = card.plan?.trim() ? `\n  Its plan: ${gist(card.plan, gistLimit)}` : "";
+    return `- "${gist(card.title, 80)}" — ${where}${branch}.${plan}`;
+  });
+
+  return [
+    "Other cards in this project, each in its own worktree — their edits are not in yours:",
+    entries.join("\n"),
+    "Do not redo or undo their work; if one of them owns what you were about to change, say so instead.",
+  ].join("\n\n");
+}
+
 /**
  * What earlier columns already did with this card. Without it, an agent picking
  * a card up in "Review" starts from nothing and redoes the work the "Todo"
@@ -102,7 +165,10 @@ export function priorWork(
   options: { limit?: number; excerpt?: number } = {},
 ): string {
   const { limit = 3, excerpt = 700 } = options;
-  const finished = runs.filter((run) => run.finishedAt !== null).slice(0, limit).reverse();
+  const finished = runs
+    .filter((run) => run.finishedAt !== null)
+    .slice(0, limit)
+    .reverse();
   if (finished.length === 0) return "";
 
   const entries = finished.map((run) => {

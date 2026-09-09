@@ -6,6 +6,8 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   CircleStopIcon,
   FolderOpenIcon,
+  MapIcon,
+  PaperclipIcon,
   PencilIcon,
   PlayIcon,
   RadioTowerIcon,
@@ -13,7 +15,9 @@ import {
   TriangleAlertIcon,
 } from "lucide-react";
 
+import { AttachmentStrip } from "./Attachments";
 import { StatusBadge } from "./StatusBadge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -22,7 +26,7 @@ import {
 } from "./ui/context-menu";
 import { Checkbox } from "./ui";
 import { parseChecklist, progress } from "@/lib/checklist";
-import type { RunState, Task } from "@/lib/types";
+import type { RunState, Task, TmpFile } from "@/lib/types";
 
 export type CardAction =
   | "interrupt"
@@ -30,9 +34,11 @@ export type CardAction =
   | "block"
   | "drop"
   | "remote"
+  | "plan"
   | "remove"
   | "edit"
-  | "open";
+  | "open"
+  | "files";
 
 const LIVE: RunState[] = ["queued", "planning", "running", "needs_approval"];
 
@@ -67,6 +73,20 @@ function Controls({ task, onAction }: { task: Task; onAction: (action: CardActio
         }`}
       >
         <RadioTowerIcon className="size-3.5" />
+      </button>
+
+      <button
+        type="button"
+        title="Show this card's plan"
+        aria-label="Show plan"
+        onPointerDown={(event) => event.stopPropagation()}
+        onClick={(event) => {
+          event.stopPropagation();
+          onAction("plan");
+        }}
+        className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
+      >
+        <MapIcon className="size-3.5" />
       </button>
 
       {live &&
@@ -136,50 +156,85 @@ function Checklist({ task, onToggle }: { task: Task; onToggle?: (index: number) 
   );
 }
 
+/**
+ * That the agent is working, without spelling out what it is doing.
+ *
+ * Its status line changes every second or two and is as long as it likes, so
+ * showing it as text moved every card underneath it all run long. The rail is
+ * always drawn, whether or not anything is happening inside it, so the card is
+ * exactly as tall when the agent starts as when it stops.
+ */
+function Activity({ task, status }: { task: Task; status?: string }) {
+  return (
+    <div className="mt-1.5 h-1">
+      {LIVE.includes(task.runState) && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <div className="h-1 overflow-hidden rounded-full bg-muted">
+                <span className="activity-bar block h-full w-1/3 rounded-full bg-primary" />
+              </div>
+            }
+          />
+          <TooltipContent>{status ?? "Working…"}</TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
+
 export function TaskCardBody({
   task,
   dragging,
   onToggleStep,
   onAction,
   status,
+  files = [],
+  onOpenFile,
+  onRemoveFile,
 }: {
   task: Task;
   dragging?: boolean;
   onToggleStep?: (index: number) => void;
   onAction?: (action: CardAction) => void;
   status?: string;
+  /** What this card was given and what its agent handed back. */
+  files?: TmpFile[];
+  onOpenFile?: (file: TmpFile) => void;
+  onRemoveFile?: (file: TmpFile) => void;
 }) {
   const steps = parseChecklist(task.body);
 
   return (
     <article
-      className={`rounded-lg border border-border bg-card px-2.5 py-2 text-left shadow-sm ${
+      className={`relative rounded-lg border border-border bg-card px-2.5 py-2 text-left shadow-sm ${
         dragging ? "shadow-lg ring-1 ring-ring" : ""
       }`}
     >
-      <p className="text-[0.9375rem] leading-snug">{task.title}</p>
+      {/* Out of the flow, so a card does not grow a row the moment its agent
+          starts. The title keeps the corner clear whatever state it is in — a
+          reserved gap costs nothing next to the whole card jumping. */}
+      <div className="absolute top-2 right-2">
+        <StatusBadge state={task.runState} />
+      </div>
+
+      <p className="pr-24 text-[0.9375rem] leading-snug">{task.title}</p>
       {task.body && steps.length === 0 && (
         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.body}</p>
       )}
-      {status && (
-        <p className="mt-1.5 truncate font-mono text-xs text-primary" title={status}>
-          {status}
-        </p>
-      )}
+      <Activity task={task} status={status} />
       <Checklist task={task} onToggle={onToggleStep} />
+      {onOpenFile && (
+        <AttachmentStrip files={files} onOpen={onOpenFile} onRemove={onRemoveFile} />
+      )}
       {onAction && <Controls task={task} onAction={onAction} />}
       {task.githubNumber !== null && (
         <p className="mt-1 font-mono text-xs text-muted-foreground">
           {task.githubKind === "pull" ? "PR" : "issue"} #{task.githubNumber}
         </p>
       )}
-      {(task.runState !== "idle" || task.branch) && (
-        <div className="mt-1.5 flex items-center gap-2 overflow-hidden">
-          <StatusBadge state={task.runState} />
-          {task.branch && (
-            <span className="truncate font-mono text-xs text-muted-foreground">{task.branch}</span>
-          )}
-        </div>
+      {task.branch && (
+        <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground">{task.branch}</p>
       )}
     </article>
   );
@@ -191,6 +246,9 @@ export function TaskCard({
   onToggleStep,
   onAction,
   status,
+  files,
+  onOpenFile,
+  onRemoveFile,
   editor,
 }: {
   task: Task;
@@ -198,6 +256,9 @@ export function TaskCard({
   onToggleStep: (task: Task, index: number) => void;
   onAction: (task: Task, action: CardAction) => void;
   status?: string;
+  files?: TmpFile[];
+  onOpenFile: (file: TmpFile) => void;
+  onRemoveFile: (file: TmpFile) => void;
   /** Name of the editor a card can be opened in, when there is one. */
   editor?: string;
 }) {
@@ -231,6 +292,9 @@ export function TaskCard({
                 onToggleStep={(index) => onToggleStep(task, index)}
                 onAction={(action) => onAction(task, action)}
                 status={status}
+                files={files}
+                onOpenFile={onOpenFile}
+                onRemoveFile={onRemoveFile}
               />
             </div>
           }
@@ -244,6 +308,14 @@ export function TaskCard({
             <FolderOpenIcon />
             {editor ? `Open in ${editor}` : "No editor found"}
           </ContextMenuItem>
+          {/* Only when there is something to open: the store is per card, and an
+              empty one has no directory on disk yet. */}
+          {files && files.length > 0 && (
+            <ContextMenuItem onClick={() => onAction(task, "files")}>
+              <PaperclipIcon />
+              Open temp files
+            </ContextMenuItem>
+          )}
           <ContextMenuItem variant="destructive" onClick={() => onAction(task, "remove")}>
             <TrashIcon />
             Remove card…

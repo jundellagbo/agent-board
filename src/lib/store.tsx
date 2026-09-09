@@ -145,7 +145,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const setTheme = useCallback((next: Theme) => {
     setThemeState(next);
     applyTheme(next);
-    retheme();
+    void retheme();
     void settingsApi.set(THEME_KEY, JSON.stringify(next)).catch(() => undefined);
   }, []);
 

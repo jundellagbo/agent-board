@@ -71,6 +71,8 @@ export interface Task {
   groupId: string;
   title: string;
   body: string | null;
+  /** What the agent said it would do — never written over the card's own text. */
+  plan: string | null;
   position: number;
   agentId: string | null;
   /** Overrides the agent's own model for this card only. */
@@ -86,6 +88,19 @@ export interface Task {
   lastRunId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** What a card was given, and what its agent handed back. */
+export type TmpKind = "attached" | "response";
+
+export interface TmpFile {
+  cardId: string;
+  kind: TmpKind;
+  name: string;
+  path: string;
+  size: number;
+  modifiedAt: string;
+  mime: string;
 }
 
 export type GroupPatch = Partial<
@@ -113,6 +128,7 @@ export type TaskPatch = Partial<
     Task,
     | "title"
     | "body"
+    | "plan"
     | "agentId"
     | "model"
     | "remote"

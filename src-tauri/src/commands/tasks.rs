@@ -25,6 +25,7 @@ pub fn list_tasks(db: State<Db>, project_id: String) -> Result<Vec<Task>> {
 pub struct TaskPatch {
     pub title: Option<String>,
     pub body: Option<String>,
+    pub plan: Option<String>,
     pub agent_id: Option<String>,
     pub model: Option<String>,
     pub remote: Option<bool>,
@@ -44,6 +45,27 @@ pub async fn resolve_github(input: String) -> Result<crate::github::Resolved> {
         .map_err(|e| crate::error::Error::Invalid(e.to_string()))?
 }
 
+/// The id a card will have, reserved by the frontend before the card exists.
+///
+/// Files attached while a card is still being composed have to go somewhere,
+/// and the tmp store is keyed by card id — so the composer picks the id first
+/// and the paths it writes into the card's text are the ones that will still be
+/// right afterwards. It becomes a directory name, so it is checked rather than
+/// trusted.
+fn reserved_id(id: Option<String>) -> Result<String> {
+    let Some(id) = id else { return Ok(new_id()) };
+
+    let usable = !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !usable {
+        return Err(Error::Invalid(format!("{id} is not a usable card id")));
+    }
+    Ok(id)
+}
+
 #[tauri::command]
 pub fn create_task(
     app: AppHandle,
@@ -51,8 +73,10 @@ pub fn create_task(
     project_id: String,
     group_id: Option<String>,
     patch: TaskPatch,
+    id: Option<String>,
 ) -> Result<Task> {
     let title = non_empty(patch.title.clone().unwrap_or_default(), "task title")?;
+    let id = reserved_id(id)?;
 
     db.tx(|tx| {
         let group_id = match group_id {
@@ -64,7 +88,6 @@ pub fn create_task(
             params![group_id],
             |r| r.get(0),
         )?;
-        let id = new_id();
         let ts = now();
         tx.execute(
             "INSERT INTO tasks (id, project_id, group_id, title, body, position, agent_id, model,
@@ -105,7 +128,8 @@ pub fn update_task(app: AppHandle, db: State<Db>, id: String, patch: TaskPatch) 
         };
         conn.execute(
             "UPDATE tasks SET title = ?2, body = ?3, agent_id = ?4, model = ?5, github_url = ?6,
-                              branch = ?7, run_state = ?8, remote = ?9, updated_at = ?10
+                              branch = ?7, run_state = ?8, remote = ?9, updated_at = ?10,
+                              plan = ?11
              WHERE id = ?1",
             params![
                 id,
@@ -117,7 +141,8 @@ pub fn update_task(app: AppHandle, db: State<Db>, id: String, patch: TaskPatch) 
                 patch.branch.or(current.branch),
                 patch.run_state.unwrap_or(current.run_state),
                 patch.remote.unwrap_or(current.remote),
-                now()
+                now(),
+                patch.plan.or(current.plan)
             ],
         )?;
         get(conn, &id)
@@ -140,6 +165,13 @@ pub fn delete_task(app: AppHandle, db: State<Db>, id: String) -> Result<()> {
         }
         Ok(())
     })?;
+
+    // Its scratch files go with it: nothing else points at them once the card
+    // is gone, and they are the one part of a card that lives outside the
+    // database. A failure here must not leave the card undeletable.
+    if let Err(error) = crate::commands::tmp::clear(&app, &id) {
+        log::warn!("could not remove the tmp files for {id}: {error}");
+    }
 
     let project_id = db.with(|conn| Ok(get(conn, &id)?.project_id))?;
     db.tx(|tx| {

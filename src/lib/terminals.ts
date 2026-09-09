@@ -116,11 +116,52 @@ export function find(taskId: string): Session | undefined {
 }
 
 /** Slightly under the interface size: a monospace face reads larger at the
- *  same nominal size, and the terminal is the densest thing on screen. */
+ *  same nominal size, and the terminal is the densest thing on screen. Never
+ *  below 13px, where antialiasing starts costing more than the density gains. */
 function terminalFontSize(): number {
   const root = parseFloat(getComputedStyle(document.documentElement).fontSize);
-  return Math.round((Number.isFinite(root) ? root : 16) * 0.875);
+  return Math.max(13, Math.round((Number.isFinite(root) ? root : 16) * 0.9));
 }
+
+function codeFont(): string {
+  return getComputedStyle(document.documentElement).getPropertyValue("--font-code").trim();
+}
+
+/**
+ * Cell size is measured from the font once, and re-measured only when a font
+ * option actually changes — so a face that arrives after that first measure
+ * leaves every glyph narrow inside a cell sized for the fallback, with a gap
+ * beside it for the rest of the session. Re-setting a font option to the value
+ * it already holds does not force a re-measure, so the face has to be loaded
+ * before the terminal is built.
+ */
+async function fontReady(family: string, size: number): Promise<void> {
+  if (!document.fonts) return;
+  try {
+    await document.fonts.load(`${size}px ${family}`);
+    await document.fonts.ready;
+  } catch {
+    // A face that will not load still renders through the rest of the stack.
+  }
+}
+
+/**
+ * What makes an agent's output readable rather than merely present.
+ *
+ * Agents write most of their output dim, which on a dark background lands
+ * somewhere near the surface colour — hence the contrast floor, which lifts
+ * only text that is genuinely too faint and leaves everything else alone.
+ * `rescaleOverlappingGlyphs` is for the characters no monospace face has at the
+ * right width — spinners, powerline arrows, the odd emoji — which otherwise
+ * spill into the cell beside them and smear the line.
+ */
+const LEGIBILITY = {
+  // A little air: agent output is dense, and 1.0 line height runs together.
+  lineHeight: 1.3,
+  letterSpacing: 0,
+  minimumContrastRatio: 3,
+  rescaleOverlappingGlyphs: true,
+} as const;
 
 function theme() {
   const style = getComputedStyle(document.documentElement);
@@ -147,7 +188,11 @@ function theme() {
  * failed to be recognised.
  */
 const IDLE_AFTER = 45_000;
-const IDLE_CHECK = 5_000;
+/** The shorter wait for a session that is showing no status line at all — it is
+ *  sitting at its own prompt, not working, so a card need not hang on for the
+ *  full window before it moves. */
+const PARKED_AFTER = 12_000;
+const IDLE_CHECK = 2_000;
 const SCREEN_SCAN = 400;
 
 function sweepIdle() {
@@ -160,11 +205,13 @@ function sweepIdle() {
         // an agent that never prints one must still be swept up.
         ready: session.settled !== "",
         waiting: session.waiting,
+        status: session.status,
         settledAt: session.settledAt,
         closed: session.reported !== undefined || session.exitCode !== null,
       },
       now,
       IDLE_AFTER,
+      PARKED_AFTER,
     );
     if (!idle) continue;
 
@@ -228,6 +275,8 @@ function scanScreens() {
       session.settledAt = Date.now();
     }
 
+    readMarks(session, screen);
+
     const status = detectStatus(screen);
     if (status && !session.ready) {
       session.ready = true;
@@ -246,37 +295,51 @@ function scanScreens() {
   }
 }
 
-function observe(session: Attached, bytes: Uint8Array) {
-  session.tail = (session.tail + decoder.decode(bytes, { stream: true })).slice(-TAIL_LIMIT);
-  // The screen is read on a timer instead of per chunk: a busy agent writes far
-  // more often than anyone can read.
-  session.dirty = true;
-
+/**
+ * The board's own marks, read out of whichever text is to hand.
+ *
+ * Neither source sees everything. The byte tail holds only the last couple of
+ * thousand characters, so a mark an agent printed before a burst of output has
+ * already fallen out of it; the screen holds only what has not scrolled away.
+ * Reading both is what stops a card waiting on the idle sweep for a step or an
+ * outcome that was announced perfectly clearly. Each mark is acted on once,
+ * whichever source finds it first.
+ */
+function readMarks(session: Attached, text: string) {
   if (!session.planned) {
-    const decision = detectPlan(session.tail);
+    const decision = detectPlan(text);
     if (decision) {
       session.planned = true;
       session.onPlan?.(decision);
-    } else if (!session.planning && planStarted(session.tail)) {
+    } else if (!session.planning && planStarted(text)) {
       session.planning = true;
       session.onPlanning?.();
     }
   }
 
   if (session.onStep) {
-    for (const index of detectSteps(session.tail)) {
+    for (const index of detectSteps(text)) {
       if (session.ticked.includes(index)) continue;
       session.ticked.push(index);
       session.onStep(index + 1);
     }
   }
 
-  const outcome = detectOutcome(session.tail);
+  const outcome = detectOutcome(text);
   if (outcome && outcome !== session.reported) {
     session.reported = outcome;
     notify();
     session.onOutcome?.(outcome, stripAnsi(session.tail).trimEnd());
   }
+}
+
+function observe(session: Attached, bytes: Uint8Array) {
+  session.tail = (session.tail + decoder.decode(bytes, { stream: true })).slice(-TAIL_LIMIT);
+  // The screen is read on a timer instead of per chunk: a busy agent writes far
+  // more often than anyone can read.
+  session.dirty = true;
+
+  readMarks(session, session.tail);
 
   const status = detectStatus(session.tail);
   if (status && !session.ready) {
@@ -322,12 +385,17 @@ function replay(id: string) {
 
 // Live terminals keep the theme they were created with, so a theme change has
 // to be pushed into each one.
-export function retheme(): void {
-  const font = getComputedStyle(document.documentElement).getPropertyValue("--font-code").trim();
+export async function retheme(): Promise<void> {
+  const font = codeFont();
+  const size = terminalFontSize();
+  await fontReady(font, size);
   for (const session of sessions.values()) {
     session.term.options.theme = theme();
     session.term.options.fontFamily = font;
-    session.term.options.fontSize = terminalFontSize();
+    session.term.options.fontSize = size;
+    session.term.options.lineHeight = LEGIBILITY.lineHeight;
+    session.term.options.letterSpacing = LEGIBILITY.letterSpacing;
+    session.term.options.minimumContrastRatio = LEGIBILITY.minimumContrastRatio;
     if (session.host.clientWidth > 0) session.fit.fit();
   }
 }
@@ -361,11 +429,14 @@ export async function open(
     }
   }
 
+  const fontFamily = codeFont();
+  const fontSize = terminalFontSize();
+  await fontReady(fontFamily, fontSize);
+
   const term = new Terminal({
-    fontFamily: getComputedStyle(document.documentElement).getPropertyValue("--font-code").trim(),
-    fontSize: terminalFontSize(),
-    // A little air: agent output is dense, and 1.0 line height runs together.
-    lineHeight: 1.25,
+    fontFamily,
+    fontSize,
+    ...LEGIBILITY,
     cursorBlink: true,
     allowProposedApi: true,
     scrollback: 5000,
@@ -386,10 +457,6 @@ export async function open(
   } catch {
     // Some machines have no working WebGL; the default renderer still works.
   }
-
-  // Cell size is measured from the font, so measuring before the font has
-  // loaded gives the wrong grid and clips the right-hand columns.
-  void document.fonts?.ready.then(() => fit.fit()).catch(() => undefined);
 
   const id = await ptyApi.spawn({
     cwd: options.cwd,

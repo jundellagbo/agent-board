@@ -1,4 +1,4 @@
-import { stripAnsi } from "./approval.ts";
+import { markLines, markPayload } from "./marks.ts";
 
 /**
  * An interactive agent does not exit when it finishes — it returns to its own
@@ -21,14 +21,11 @@ export type Outcome = "done" | "blocked";
  * does not end the run.
  */
 export function detectOutcome(output: string): Outcome | null {
-  const lines = stripAnsi(output)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = markLines(output).filter(Boolean);
 
   for (const line of lines.reverse()) {
-    if (line.startsWith(BLOCKED_MARK)) return "blocked";
-    if (line.startsWith(DONE_MARK)) return "done";
+    if (markPayload(line, BLOCKED_MARK) === "") return "blocked";
+    if (markPayload(line, DONE_MARK) === "") return "done";
   }
   return null;
 }

@@ -5,7 +5,14 @@ import { hasGoneIdle } from "./idle.ts";
 
 const AFTER = 45_000;
 const now = 1_000_000;
-const still = { ready: true, waiting: false, settledAt: now - AFTER, closed: false };
+const PARKED = 12_000;
+const still = {
+  ready: true,
+  waiting: false,
+  status: "Mustering… (12s)",
+  settledAt: now - AFTER,
+  closed: false,
+};
 
 test("a session that has stood still long enough is finished", () => {
   assert.equal(hasGoneIdle(still, now, AFTER), true);
@@ -28,4 +35,15 @@ test("waiting on an answer is never finished, however long it waits", () => {
 test("a session that never started, or already closed, is not swept", () => {
   assert.equal(hasGoneIdle({ ...still, ready: false }, now, AFTER), false);
   assert.equal(hasGoneIdle({ ...still, closed: true }, now, AFTER), false);
+});
+
+test("a session showing no status line is parked, and swept up sooner", () => {
+  const parked = { ...still, status: null, settledAt: now - PARKED };
+  assert.equal(hasGoneIdle(parked, now, AFTER, PARKED), true);
+  assert.equal(hasGoneIdle({ ...parked, settledAt: now - 3000 }, now, AFTER, PARKED), false);
+  assert.equal(
+    hasGoneIdle({ ...still, settledAt: now - PARKED }, now, AFTER, PARKED),
+    false,
+    "an agent still printing a status line waits out the full window",
+  );
 });
