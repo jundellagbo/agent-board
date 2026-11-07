@@ -58,6 +58,18 @@ const MIGRATIONS: &[(&str, &str)] = &[
         "0014_task_plan",
         include_str!("../../migrations/0014_task_plan.sql"),
     ),
+    (
+        "0015_agent_tmp_dir",
+        include_str!("../../migrations/0015_agent_tmp_dir.sql"),
+    ),
+    (
+        "0016_no_running_lane",
+        include_str!("../../migrations/0016_no_running_lane.sql"),
+    ),
+    (
+        "0017_task_worktree",
+        include_str!("../../migrations/0017_task_worktree.sql"),
+    ),
 ];
 
 pub fn run(conn: &Connection) -> Result<()> {

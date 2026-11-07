@@ -29,6 +29,7 @@ pub struct TaskPatch {
     pub agent_id: Option<String>,
     pub model: Option<String>,
     pub remote: Option<bool>,
+    pub use_worktree: Option<bool>,
     pub github_url: Option<String>,
     pub github_kind: Option<String>,
     pub github_number: Option<i64>,
@@ -92,8 +93,8 @@ pub fn create_task(
         tx.execute(
             "INSERT INTO tasks (id, project_id, group_id, title, body, position, agent_id, model,
                                 remote, github_url, github_kind, github_number, branch,
-                                created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)",
+                                use_worktree, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)",
             params![
                 id,
                 project_id,
@@ -110,6 +111,9 @@ pub fn create_task(
                 patch.github_kind,
                 patch.github_number,
                 patch.branch,
+                // On unless the card says otherwise: two agents in one working
+                // tree overwrite each other, so opting out is the exception.
+                patch.use_worktree.unwrap_or(true),
                 ts
             ],
         )?;
@@ -129,7 +133,7 @@ pub fn update_task(app: AppHandle, db: State<Db>, id: String, patch: TaskPatch) 
         conn.execute(
             "UPDATE tasks SET title = ?2, body = ?3, agent_id = ?4, model = ?5, github_url = ?6,
                               branch = ?7, run_state = ?8, remote = ?9, updated_at = ?10,
-                              plan = ?11
+                              plan = ?11, use_worktree = ?12
              WHERE id = ?1",
             params![
                 id,
@@ -142,7 +146,8 @@ pub fn update_task(app: AppHandle, db: State<Db>, id: String, patch: TaskPatch) 
                 patch.run_state.unwrap_or(current.run_state),
                 patch.remote.unwrap_or(current.remote),
                 now(),
-                patch.plan.or(current.plan)
+                patch.plan.or(current.plan),
+                patch.use_worktree.unwrap_or(current.use_worktree)
             ],
         )?;
         get(conn, &id)

@@ -32,7 +32,10 @@ const STATES: Record<
     icon: MapIcon,
   },
   running: {
-    label: "Running",
+    // "Working" rather than "Running": on a card that has already been through
+    // the board once, it reads as the agent being at it again rather than as a
+    // second, competing state beside Done.
+    label: "Working",
     className: "bg-primary/15 text-primary",
     icon: LoaderCircleIcon,
     spin: true,

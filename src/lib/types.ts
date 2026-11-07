@@ -79,6 +79,8 @@ export interface Task {
   model: string | null;
   /** Open this card's session to remote control. */
   remote: boolean;
+  /** Give this card a checkout of its own, rather than the project directory. */
+  useWorktree: boolean;
   githubUrl: string | null;
   githubKind: "issue" | "pull" | null;
   githubNumber: number | null;
@@ -132,6 +134,7 @@ export type TaskPatch = Partial<
     | "agentId"
     | "model"
     | "remote"
+    | "useWorktree"
     | "githubUrl"
     | "githubKind"
     | "githubNumber"

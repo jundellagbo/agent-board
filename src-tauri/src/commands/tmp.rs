@@ -7,8 +7,10 @@ use std::time::{Duration, Instant, SystemTime};
 use base64::Engine;
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager};
+use rusqlite::params;
+use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::db::Db;
 use crate::error::{Error, Result};
 
 /// Scratch space for a card: what you hand the agent, and what it hands back.
@@ -351,6 +353,21 @@ pub fn paste_tmp(app: AppHandle, card_id: String) -> Result<TmpFile> {
     add(&root(&app)?, &card_id, TmpKind::Attached, &name, &bytes)
 }
 
+/// Where a card's files live, for the agent that has to read them.
+///
+/// A card runs in its own worktree and its store is deliberately outside it, so
+/// a CLI that confines itself to the working directory cannot open a screenshot
+/// it was handed the path to. Nothing comes back for a card with no files: the
+/// caller drops the flag rather than pointing a CLI at an empty directory.
+#[tauri::command]
+pub fn tmp_dir(app: AppHandle, card_id: String) -> Result<Option<String>> {
+    let root = root(&app)?;
+    if list(&root, Some(&card_id))?.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(card_dir(&root, &card_id)?.to_string_lossy().to_string()))
+}
+
 #[tauri::command]
 pub fn read_tmp(app: AppHandle, path: String) -> Result<String> {
     let file = within(&root(&app)?, &path)?;
@@ -385,10 +402,40 @@ pub fn clear_tmp(app: AppHandle, card_id: String) -> Result<()> {
 #[tauri::command]
 pub fn reveal_tmp(app: AppHandle, path: String) -> Result<String> {
     let file = within(&root(&app)?, &path)?;
+    reveal_path(&file)
+}
+
+/// Everything one project's cards are carrying, in the file manager.
+///
+/// The store is one directory per card, so a project has no directory of its
+/// own — this opens the first of its cards that has anything, which is the same
+/// place a person would then navigate from.
+#[tauri::command]
+pub fn reveal_project_tmp(app: AppHandle, db: State<Db>, project_id: String) -> Result<String> {
+    let cards: Vec<String> = db.with(|conn| {
+        let mut statement =
+            conn.prepare("SELECT id FROM tasks WHERE project_id = ?1 ORDER BY created_at")?;
+        let ids = statement
+            .query_map(params![project_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<Vec<String>>>()?;
+        Ok(ids)
+    })?;
+
+    let root = root(&app)?;
+    let directory = cards
+        .iter()
+        .filter_map(|card| card_dir(&root, card).ok())
+        .find(|dir| dir.is_dir())
+        .ok_or_else(|| Error::Invalid("this project's cards have no scratch files".into()))?;
+
+    reveal_path(&directory)
+}
+
+fn reveal_path(file: &Path) -> Result<String> {
     let directory = if file.is_dir() {
-        file.clone()
+        file.to_path_buf()
     } else {
-        file.parent().unwrap_or(&file).to_path_buf()
+        file.parent().unwrap_or(file).to_path_buf()
     };
 
     let (program, args) = if cfg!(target_os = "macos") {

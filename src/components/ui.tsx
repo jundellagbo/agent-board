@@ -2,12 +2,7 @@
 
 import type { ReactNode } from "react";
 
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "./ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./ui/dialog";
 import { Checkbox } from "./ui/checkbox";
 import { Label } from "./ui/label";
 
@@ -44,18 +39,36 @@ export function CheckField({
   onChange,
   disabled,
   hint,
+  compact,
 }: {
   label: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
   hint?: ReactNode;
+  /** Sized for the card composer, where every other control is xs. */
+  compact?: boolean;
 }) {
   return (
-    <Label className="flex items-center gap-2 font-normal">
-      <Checkbox checked={checked} disabled={disabled} onCheckedChange={onChange} />
+    <Label
+      className={
+        compact
+          ? "flex items-center gap-1.5 text-xs font-normal"
+          : "flex items-center gap-2 font-normal"
+      }
+    >
+      <Checkbox
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+        className={compact ? "size-3.5" : undefined}
+      />
       <span>{label}</span>
-      {hint && <span className="text-xs text-muted-foreground">{hint}</span>}
+      {hint && (
+        <span className={compact ? "text-muted-foreground" : "text-xs text-muted-foreground"}>
+          {hint}
+        </span>
+      )}
     </Label>
   );
 }
@@ -79,7 +92,9 @@ export function Modal({
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className={width}>
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
+          {/* Dialog titles quote things people and agents named — a card title,
+              a file — so the header has to survive a long one. */}
+          <DialogTitle className="wrap-anywhere">{title}</DialogTitle>
         </DialogHeader>
         {children}
       </DialogContent>

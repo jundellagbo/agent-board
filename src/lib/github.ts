@@ -26,7 +26,8 @@ export async function cardFromInput(input: string): Promise<TaskPatch> {
     githubUrl: reference.url,
     githubKind: reference.kind,
     githubNumber: reference.number,
-    // An issue gets a fresh branch; a pull request checks out the one it has.
+    // A pull request checks out the branch it has; an issue is named after what
+    // it is and its number, e.g. `bug-42` — both come back resolved.
     branch: resolved?.branch ?? null,
   };
 }

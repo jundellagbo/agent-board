@@ -41,6 +41,7 @@ function task(overrides: Partial<Task>): Task {
     agentId: null,
     model: null,
     remote: true,
+    useWorktree: true,
     githubUrl: null,
     githubKind: null,
     githubNumber: null,

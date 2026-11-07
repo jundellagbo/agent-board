@@ -28,9 +28,8 @@ struct Seed {
     model: Option<&'static str>,
 }
 
-const IN_PROGRESS: usize = 1;
-const FOR_REVIEW: usize = 2;
-const COMPLETED: usize = 5;
+const FOR_REVIEW: usize = 1;
+const COMPLETED: usize = 4;
 
 const DEFAULTS: &[Seed] = &[
     Seed {
@@ -38,17 +37,9 @@ const DEFAULTS: &[Seed] = &[
         board_type: "todo",
         auto_run: true,
         plans: true,
-        running: Some(IN_PROGRESS),
-        success: Some(FOR_REVIEW),
-        failure: None,
-        prompt: None,
-        model: None,
-    },
-    Seed {
-        name: "In Progress",
-        board_type: "in_progress",
-        auto_run: false,
-        plans: false,
+        // No running lane: a card being worked on says so on its own face, and a
+        // column that only ever holds the one card in flight earned its keep by
+        // repeating what the badge already says.
         running: None,
         success: Some(FOR_REVIEW),
         failure: None,

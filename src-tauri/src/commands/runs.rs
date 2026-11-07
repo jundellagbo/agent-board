@@ -48,7 +48,15 @@ pub fn claim(
             params![task_id, run_id, ts],
         )?;
 
-        if let Some(target) = group.running_group_id {
+        // The column's own running lane wins; falling back to the board's
+        // in-progress column means a card started from anywhere still shows up
+        // where people look for work in flight, without every column having to
+        // be wired for it by hand.
+        let target = match group.running_group_id {
+            Some(target) => Some(target),
+            None => in_progress_group(tx, &task.project_id)?,
+        };
+        if let Some(target) = target {
             move_to(tx, &task, &target)?;
         }
         get_run(tx, &run_id)
@@ -197,6 +205,20 @@ pub fn list_runs(db: State<Db>, task_id: String) -> Result<Vec<TaskRun>> {
         let rows = stmt.query_map(params![task_id], TaskRun::from_row)?;
         Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
     })
+}
+
+/// The board's in-progress lane, if it still has one — a column can be renamed
+/// or deleted, and its type is what says what it is for.
+fn in_progress_group(conn: &Connection, project_id: &str) -> Result<Option<String>> {
+    Ok(conn
+        .query_row(
+            "SELECT id FROM board_groups
+              WHERE project_id = ?1 AND board_type = 'in_progress'
+              ORDER BY position LIMIT 1",
+            params![project_id],
+            |row| row.get(0),
+        )
+        .optional()?)
 }
 
 fn move_to(conn: &Connection, task: &Task, group_id: &str) -> Result<()> {

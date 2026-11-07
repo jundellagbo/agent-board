@@ -119,7 +119,7 @@ export function Board({
     void start(
       claim.task,
       claim.group,
-      { project, agents, groups, cards: columns.flatMap((column) => column.tasks) },
+      { project, agents, groups },
       (exitCode) => {
         void announceCompletion(notifications, claim.task, project.name, exitCode);
         void refresh();

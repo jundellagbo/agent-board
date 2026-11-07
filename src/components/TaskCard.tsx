@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import {
   CircleStopIcon,
   FolderOpenIcon,
+  GitBranchIcon,
   MapIcon,
   PaperclipIcon,
   PencilIcon,
@@ -25,6 +26,7 @@ import {
   ContextMenuTrigger,
 } from "./ui/context-menu";
 import { Checkbox } from "./ui";
+import { Badge } from "./ui/badge";
 import { parseChecklist, progress } from "@/lib/checklist";
 import type { RunState, Task, TmpFile } from "@/lib/types";
 
@@ -146,7 +148,9 @@ function Checklist({ task, onToggle }: { task: Task; onToggle?: (index: number) 
               onClick={(event) => event.stopPropagation()}
               onCheckedChange={() => onToggle?.(index)}
             />
-            <span className={step.done ? "text-muted-foreground line-through" : ""}>
+            <span
+              className={`min-w-0 wrap-anywhere ${step.done ? "text-muted-foreground line-through" : ""}`}
+            >
               {step.text}
             </span>
           </li>
@@ -218,15 +222,16 @@ export function TaskCardBody({
         <StatusBadge state={task.runState} />
       </div>
 
-      <p className="pr-24 text-[0.9375rem] leading-snug">{task.title}</p>
+      {/* A card's own text is the one thing on the board nobody has vetted: the
+          attachment picker writes file paths straight into it, and a path is a
+          single unbreakable word wider than any column. */}
+      <p className="line-clamp-3 pr-24 text-[0.9375rem] leading-snug wrap-anywhere">{task.title}</p>
       {task.body && steps.length === 0 && (
-        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{task.body}</p>
+        <p className="mt-1 line-clamp-2 text-xs text-muted-foreground wrap-anywhere">{task.body}</p>
       )}
       <Activity task={task} status={status} />
       <Checklist task={task} onToggle={onToggleStep} />
-      {onOpenFile && (
-        <AttachmentStrip files={files} onOpen={onOpenFile} onRemove={onRemoveFile} />
-      )}
+      {onOpenFile && <AttachmentStrip files={files} onOpen={onOpenFile} onRemove={onRemoveFile} />}
       {onAction && <Controls task={task} onAction={onAction} />}
       {task.githubNumber !== null && (
         <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -234,7 +239,18 @@ export function TaskCardBody({
         </p>
       )}
       {task.branch && (
-        <p className="mt-1.5 truncate font-mono text-xs text-muted-foreground">{task.branch}</p>
+        // Long branch names are the norm, so the badge truncates and keeps the
+        // whole name in its tooltip rather than widening the card.
+        <Badge
+          variant="outline"
+          title={task.branch}
+          className="mt-1.5 max-w-full font-mono font-normal text-muted-foreground"
+        >
+          <GitBranchIcon />
+          {/* Without min-w-0 a flex child will not shrink below its text, so the
+              badge would grow instead of the name ellipsing. */}
+          <span className="min-w-0 truncate">{task.branch}</span>
+        </Badge>
       )}
     </article>
   );

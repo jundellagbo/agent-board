@@ -50,7 +50,7 @@ fn the_commit_column_runs_the_cheap_model_on_a_narrow_instruction() {
 }
 
 #[test]
-fn defaults_route_todo_through_in_progress_to_review() {
+fn defaults_route_todo_straight_to_review() {
     let db = Db::open_in_memory().unwrap();
     let id = project(&db);
 
@@ -64,18 +64,11 @@ fn defaults_route_todo_through_in_progress_to_review() {
 
         assert_eq!(
             groups.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(),
-            [
-                "Todo",
-                "In Progress",
-                "For Review",
-                "Agent Review",
-                "Commit",
-                "Completed"
-            ]
+            ["Todo", "For Review", "Agent Review", "Commit", "Completed"]
         );
         assert_eq!(
             groups.iter().map(|g| g.1.as_str()).collect::<Vec<_>>(),
-            ["todo", "in_progress", "review", "custom", "custom", "done"]
+            ["todo", "review", "custom", "custom", "done"]
         );
         assert_eq!(
             groups.iter().filter(|g| g.2).map(|g| g.0.as_str()).collect::<Vec<_>>(),
@@ -84,16 +77,15 @@ fn defaults_route_todo_through_in_progress_to_review() {
         );
         assert!(groups[0].2, "Todo is the column the runner claims from");
 
-        let (running, success): (String, String) = conn.query_row(
-            "SELECT g.name, s.name
+        let (running, success): (Option<String>, String) = conn.query_row(
+            "SELECT (SELECT name FROM board_groups WHERE id = t.running_group_id), s.name
                FROM board_groups t
-               JOIN board_groups g ON g.id = t.running_group_id
                JOIN board_groups s ON s.id = t.success_group_id
               WHERE t.board_type = 'todo'",
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?;
-        assert_eq!(running, "In Progress");
+        assert_eq!(running, None, "a card being worked on stays where it is");
         assert_eq!(success, "For Review");
         Ok(())
     })
@@ -135,8 +127,7 @@ fn the_seeded_columns_route_only_where_they_should() {
     assert_eq!(
         routes,
         vec![
-            ("Todo".into(), "In Progress".into(), "For Review".into(), "-".into()),
-            ("In Progress".into(), "-".into(), "For Review".into(), "-".into()),
+            ("Todo".into(), "-".into(), "For Review".into(), "-".into()),
             ("For Review".into(), "-".into(), "-".into(), "-".into()),
             ("Agent Review".into(), "-".into(), "-".into(), "-".into()),
             ("Commit".into(), "-".into(), "Completed".into(), "-".into()),
@@ -166,10 +157,9 @@ fn a_run_routes_the_card_by_its_exit_code() {
         .unwrap()
     };
 
-    // A run that fails leaves the card where it is — in the running lane it was
-    // moved to — so a person looks at it there rather than finding it shuffled
-    // back into the queue.
-    for (id, exit_code, expected) in [("t-ok", 0, "For Review"), ("t-bad", 1, "In Progress")] {
+    // A run that fails leaves the card where it is, marked failed, rather than
+    // routing it anywhere. Nothing re-claims it: only an idle card is picked up.
+    for (id, exit_code, expected) in [("t-ok", 0, "For Review"), ("t-bad", 1, "Todo")] {
         db.with(|conn| {
             let todo: String = conn.query_row(
                 "SELECT id FROM board_groups WHERE project_id = ?1 AND board_type = 'todo'",
@@ -187,7 +177,7 @@ fn a_run_routes_the_card_by_its_exit_code() {
         let run = db
             .tx(|tx| runs::claim(tx, id, "claude {prompt}", "/tmp", None))
             .unwrap();
-        assert_eq!(column(id), "In Progress", "claiming moves the card to the running lane");
+        assert_eq!(column(id), "Todo", "with no running lane, claiming leaves the card put");
 
         let task = db
             .tx(|tx| runs::finish(tx, &run.id, exit_code, "exited", None))
@@ -231,6 +221,83 @@ fn indexing_makes_a_project_searchable() {
     assert_eq!(hits[0].path, "src/board.rs");
 
     std::fs::remove_dir_all(&root).ok();
+}
+
+#[test]
+fn a_card_started_from_a_column_with_no_running_lane_still_lands_in_progress() {
+    use crate::commands::runs;
+
+    let db = Db::open_in_memory().unwrap();
+    let project_id = project(&db);
+
+    // A board someone gave a working lane to: no column routes into it, so the
+    // board type is the only thing that says where a running card belongs.
+    db.with(|conn| {
+        let review: String = conn.query_row(
+            "SELECT id FROM board_groups WHERE project_id = ?1 AND name = 'Agent Review'",
+            params![project_id],
+            |r| r.get(0),
+        )?;
+        conn.execute(
+            "INSERT INTO board_groups (id, project_id, name, board_type, position)
+             VALUES ('wip', ?1, 'Working', 'in_progress', 9)",
+            params![project_id],
+        )?;
+        conn.execute(
+            "INSERT INTO tasks (id, project_id, group_id, title) VALUES ('t1', ?1, ?2, 'work')",
+            params![project_id, review],
+        )?;
+        Ok(())
+    })
+    .unwrap();
+
+    db.tx(|tx| runs::claim(tx, "t1", "claude", "/tmp", None)).unwrap();
+
+    let landed: String = db
+        .with(|conn| {
+            Ok(conn.query_row(
+                "SELECT g.board_type FROM tasks t JOIN board_groups g ON g.id = t.group_id
+                  WHERE t.id = 't1'",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(landed, "in_progress");
+}
+
+#[test]
+fn a_board_with_no_in_progress_column_leaves_a_running_card_where_it_is() {
+    use crate::commands::runs;
+
+    let db = Db::open_in_memory().unwrap();
+    let project_id = project(&db);
+
+    let review = db
+        .with(|conn| {
+            let review: String = conn.query_row(
+                "SELECT id FROM board_groups WHERE project_id = ?1 AND name = 'Agent Review'",
+                params![project_id],
+                |r| r.get(0),
+            )?;
+            conn.execute(
+                "UPDATE board_groups SET board_type = 'custom' WHERE board_type = 'in_progress'",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO tasks (id, project_id, group_id, title) VALUES ('t1', ?1, ?2, 'work')",
+                params![project_id, review],
+            )?;
+            Ok(review)
+        })
+        .unwrap();
+
+    db.tx(|tx| runs::claim(tx, "t1", "claude", "/tmp", None)).unwrap();
+
+    let landed: String = db
+        .with(|conn| Ok(conn.query_row("SELECT group_id FROM tasks WHERE id = 't1'", [], |r| r.get(0))?))
+        .unwrap();
+    assert_eq!(landed, review);
 }
 
 #[test]
@@ -386,16 +453,19 @@ fn a_blocked_run_is_told_apart_from_a_failed_one() {
     assert_eq!(task.run_state, "blocked", "not the same as a crash");
     assert_eq!(
         column("t1"),
-        "In Progress",
+        "Todo",
         "and like any other failure it stays where it was working"
     );
 }
 
-/// The upgrade has to land on exactly the routing a fresh board is seeded with,
-/// and leave a board someone has made their own alone.
+/// The upgrades have to land on the routing a fresh board is seeded with, and
+/// leave a board someone has made their own alone. An old board keeps its
+/// working lane as a column — removing one is nobody's business but its owner's
+/// — but nothing routes into it any more, which is the part that matters.
 #[test]
 fn settling_the_routing_matches_a_fresh_board() {
     const SETTLE: &str = include_str!("../../migrations/0011_settle_routing.sql");
+    const DROP_LANE: &str = include_str!("../../migrations/0016_no_running_lane.sql");
 
     let db = Db::open_in_memory().unwrap();
     let fresh = project(&db);
@@ -473,8 +543,25 @@ fn settling_the_routing_matches_a_fresh_board() {
     .unwrap();
 
     db.with(|conn| Ok(conn.execute_batch(SETTLE)?)).unwrap();
+    db.with(|conn| Ok(conn.execute_batch(DROP_LANE)?)).unwrap();
 
-    assert_eq!(routes("old"), expected, "an old board ends up where a new one starts");
+    // The one column a fresh board no longer has, inert where it stands.
+    let mut settled = routes("old");
+    let lane = settled.remove(1);
+    assert_eq!(lane.0, "In Progress");
+    assert_eq!(settled, expected, "an old board ends up where a new one starts");
+
+    let into_lane: i64 = db
+        .with(|conn| {
+            Ok(conn.query_row(
+                "SELECT count(*) FROM board_groups
+                  WHERE project_id = 'old' AND running_group_id IS NOT NULL",
+                [],
+                |r| r.get(0),
+            )?)
+        })
+        .unwrap();
+    assert_eq!(into_lane, 0, "nothing moves a card into the lane any more");
 
     let mine: Option<String> = db
         .with(|conn| {

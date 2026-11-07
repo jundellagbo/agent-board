@@ -1,6 +1,5 @@
 import {
   isCommandCard,
-  parallelWork,
   pickAgent,
   pickModel,
   priorWork,
@@ -13,7 +12,7 @@ import { SENTINEL_INSTRUCTION } from "./outcome";
 import { PLAN_INSTRUCTION } from "./plan";
 import { REMOTE_COMMAND } from "./remote";
 import { stepInstruction } from "./steps";
-import { runs as runApi, tasks as taskApi, worktrees as worktreeApi } from "./ipc";
+import { runs as runApi, tasks as taskApi, tmp as tmpApi, worktrees as worktreeApi } from "./ipc";
 import * as terminals from "./terminals";
 import type { Agent, BoardGroup, Project, Task, TaskRun } from "./types";
 
@@ -23,7 +22,7 @@ export type { Column };
 export async function start(
   card: Task,
   group: BoardGroup,
-  context: { project: Project; agents: Agent[]; groups: BoardGroup[]; cards: Task[] },
+  context: { project: Project; agents: Agent[]; groups: BoardGroup[] },
   onFinished: (exitCode: number) => void,
   onProgress?: () => void,
   onWaiting?: (waiting: boolean) => void,
@@ -36,22 +35,27 @@ export async function start(
   onProgress?.();
 
   // A card gets its own checkout before the agent starts, so parallel runs never
-  // fight over one working tree. Non-git projects just run in place.
-  const task = (await worktreeApi.ensure(card.id).catch(() => null)) ?? card;
+  // fight over one working tree. Nothing comes back for a card that wants no
+  // worktree, or a project that is not a repo; those do run in place.
+  let task = card;
+  try {
+    task = (await worktreeApi.ensure(card.id)) ?? card;
+  } catch (cause) {
+    // A card that asked for a checkout of its own must not quietly fall back to
+    // the project directory — that is the tree every other agent is editing.
+    await taskApi.update(card.id, { runState: "blocked" }).catch(() => null);
+    onProgress?.();
+    throw cause;
+  }
   const agent = pickAgent(agents, { task, group, project });
   const cwd = task.worktreePath ?? project.path;
-  const columnName = (groupId: string | null) =>
-    context.groups.find((column) => column.id === groupId)?.name ?? "an earlier column";
-
   // What earlier columns did with this card, so the agent picking it up now is
-  // not starting from nothing — and what the rest of the board is doing
-  // meanwhile, so it does not collide with a card it cannot see.
-  const history = [
-    priorWork(await runApi.list(task.id).catch(() => []), columnName),
-    parallelWork(context.cards, task, columnName),
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  // not starting from nothing.
+  const history = priorWork(
+    await runApi.list(task.id).catch(() => []),
+    (groupId) =>
+      context.groups.find((column) => column.id === groupId)?.name ?? "an earlier column",
+  );
 
   // A card whose body is a checklist gets its boxes ticked as the agent works,
   // but only if the agent says which step it just finished — nothing else in the
@@ -62,8 +66,11 @@ export async function start(
   let body = task.body ?? "";
   let plan = task.plan ?? "";
   const steps = parseChecklist(body).length;
-  const stepPrompt =
-    steps > 0 ? stepInstruction(steps) : group.plans ? stepInstruction() : null;
+  const stepPrompt = steps > 0 ? stepInstruction(steps) : group.plans ? stepInstruction() : null;
+
+  // The card's files sit outside the worktree, so an agent confined to its
+  // working directory has to be let in to read what the card handed it.
+  const scratch = await tmpApi.dir(task.id).catch(() => null);
 
   const template = group.command || agent?.command || "";
   // Every column's prompt gains the outcome convention, rather than every board
@@ -85,6 +92,7 @@ export async function start(
         path: cwd,
         history,
         model: pickModel(task, group, agent),
+        tmp: scratch,
       })
     : "";
 
@@ -187,14 +195,17 @@ export async function start(
       // The agent said it had finished, or that it could not. This is the
       // normal end of a run: an interactive agent does not exit afterwards.
       onOutcome: (outcome, transcript) =>
-        void close(outcome === "done" ? 0 : 1, outcome === "done" ? "exited" : "blocked", transcript),
+        void close(
+          outcome === "done" ? 0 : 1,
+          outcome === "done" ? "exited" : "blocked",
+          transcript,
+        ),
       // It stopped working and never said so.
       onIdle: (transcript) => void close(0, "exited", transcript),
       // The transcript tail becomes the next column's context. It arrives with
       // the exit rather than being looked up, so a command that dies during
       // spawn still reports what it managed to print.
-      onExit: (code, transcript) =>
-        void close(code, code === 0 ? "exited" : "error", transcript),
+      onExit: (code, transcript) => void close(code, code === 0 ? "exited" : "error", transcript),
     });
   } catch (cause) {
     // The card is already claimed at this point; close the run out so it does

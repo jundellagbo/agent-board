@@ -12,13 +12,13 @@ import { reserveCardId } from "@/lib/attachments";
 import { appendPath } from "@/lib/compose";
 import { commandName } from "@/lib/compose";
 import { clearDraft, readDraft, writeDraft } from "@/lib/drafts";
-import { slash as slashApi, tmp as tmpApi } from "@/lib/ipc";
+import { slash as slashApi, tmp as tmpApi, worktrees as worktreeApi } from "@/lib/ipc";
 import { modelsFor } from "@/lib/models";
 
 import { cardFromInput, looksLikeGithub } from "@/lib/github";
 
 import { TaskCard, type CardAction } from "./TaskCard";
-import { Button, Textarea } from "./ui";
+import { Button, CheckField, Input, Textarea } from "./ui";
 import { pickAgent } from "@/lib/agent";
 import type { Column as ColumnData } from "@/lib/board";
 import { useStore } from "@/lib/store";
@@ -90,6 +90,23 @@ export function Column({
   // pinned to today's default the moment it is created.
   const [agentId, setAgentId] = useState("");
   const [model, setModel] = useState("");
+  // Empty means a new branch, named after the card once it runs. A card only
+  // needs a branch of its own when the project is a repo, so the choice is only
+  // offered when there is something to choose between.
+  const [branch, setBranch] = useState("");
+  const [newBranch, setNewBranch] = useState("");
+  const [branches, setBranches] = useState<string[]>([]);
+  // Two agents editing one working tree overwrite each other, so a card gets its
+  // own checkout unless someone says otherwise.
+  const [useWorktree, setUseWorktree] = useState(true);
+
+  useEffect(() => {
+    if (!composing) return;
+    void worktreeApi
+      .branches(group.projectId)
+      .then(setBranches)
+      .catch(() => setBranches([]));
+  }, [composing, group.projectId]);
 
   // Read after mounting rather than during render: this page is prerendered,
   // where there is no storage to read and a different first paint would be a
@@ -100,13 +117,16 @@ export function Column({
     setTitle(draft.title);
     setAgentId(draft.agentId);
     setModel(draft.model);
+    setBranch(draft.branch);
+    setNewBranch(draft.newBranch);
+    setUseWorktree(draft.useWorktree);
     setComposing(true);
   }, [group.id]);
 
   // Kept as it is typed, so switching project or view does not discard it.
   useEffect(() => {
-    if (composing) writeDraft(group.id, { title, agentId, model });
-  }, [composing, group.id, title, agentId, model]);
+    if (composing) writeDraft(group.id, { title, agentId, model, branch, newBranch, useWorktree });
+  }, [composing, group.id, title, agentId, model, branch, newBranch, useWorktree]);
   // A command belongs to the piece of work, not to the column it starts in.
   const [commands, setCommands] = useState<SlashCommand[]>([]);
 
@@ -128,6 +148,9 @@ export function Column({
     setTitle("");
     setAgentId("");
     setModel("");
+    setBranch("");
+    setNewBranch("");
+    setUseWorktree(true);
     setComposing(false);
     // Abandoning the card abandons what was attached to it: those files are
     // filed under an id no card will ever have.
@@ -143,7 +166,19 @@ export function Column({
     setResolving(true);
     const patch = await cardFromInput(title);
     setResolving(false);
-    onAdd({ ...patch, agentId: agentId || null, model: model || null }, group.id, draftId);
+    // A card that names no branch gets one generated from its title when it
+    // first runs, which is also when we know the name is still free.
+    onAdd(
+      {
+        ...patch,
+        agentId: agentId || null,
+        model: model || null,
+        branch: branch || newBranch.trim() || patch.branch || null,
+        useWorktree,
+      },
+      group.id,
+      draftId,
+    );
     reset({ keepFiles: true });
   }
 
@@ -334,6 +369,36 @@ export function Column({
                 className="h-7 text-xs"
               />
             </div>
+
+            {branches.length > 0 && (
+              <div className="space-y-1.5">
+                <CheckField
+                  compact
+                  label="Own worktree"
+                  checked={useWorktree}
+                  hint="its own checkout"
+                  onChange={setUseWorktree}
+                />
+                <Combobox
+                  value={branch}
+                  onChange={setBranch}
+                  options={[
+                    { value: "", label: "New branch", hint: "named after the card" },
+                    ...branches.map((name) => ({ value: name, label: name })),
+                  ]}
+                  searchPlaceholder="Find a branch…"
+                  className="h-7 text-xs"
+                />
+                {branch === "" && (
+                  <Input
+                    value={newBranch}
+                    onChange={(event) => setNewBranch(event.target.value)}
+                    placeholder="Branch name — leave empty to name it after the card"
+                    className="h-7 font-mono text-xs"
+                  />
+                )}
+              </div>
+            )}
 
             <div className="flex justify-end gap-1.5">
               <Button size="xs" variant="ghost" onClick={() => reset()}>

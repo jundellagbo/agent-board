@@ -9,7 +9,12 @@ import { Sidebar } from "./Sidebar";
 import { TaskPreview } from "./TaskPreview";
 import { TerminalPane } from "./TerminalPane";
 import { pickAgent, pickModel, priorWork, resolveCommand, taskPrompt } from "@/lib/agent";
-import { runs as runApi, tasks as taskApi } from "@/lib/ipc";
+import {
+  runs as runApi,
+  tasks as taskApi,
+  tmp as tmpApi,
+  worktrees as worktreeApi,
+} from "@/lib/ipc";
 import { announceApproval } from "@/lib/notify";
 import { useStore } from "@/lib/store";
 import * as terminals from "@/lib/terminals";
@@ -58,20 +63,28 @@ export function AppShell() {
 
   /** Starts an agent on a card. Only ever from an explicit Run. */
   const runTask = useCallback(
-    async (task: Task, group: BoardGroup, groups: BoardGroup[]) => {
+    async (card: Task, group: BoardGroup, groups: BoardGroup[]) => {
       if (!project) return;
 
-      const cwd = task.worktreePath ?? project.path;
-      // A column's own command wins over the agent's: that is the point of
-      // giving a column like "Testing" its own skill and command.
-      const agent = pickAgent(agents, { task, group, project });
-      const template = group.command || agent?.command;
       // Opening a card by hand tells the agent as much as the runner would.
       const history = priorWork(
-        await runApi.list(task.id).catch(() => []),
+        await runApi.list(card.id).catch(() => []),
         (groupId) => groups.find((column) => column.id === groupId)?.name ?? "an earlier column",
       );
       try {
+        // Its own checkout, the same as an automatic run gets — a card started
+        // by hand used to run in the project directory until some other run had
+        // made it one.
+        const task = (await worktreeApi.ensure(card.id)) ?? card;
+        const cwd = task.worktreePath ?? project.path;
+        // The card's files sit outside the worktree, so an agent confined to its
+        // working directory has to be let in to read them.
+        const scratch = await tmpApi.dir(task.id).catch(() => null);
+        // A column's own command wins over the agent's: that is the point of
+        // giving a column like "Testing" its own skill and command.
+        const agent = pickAgent(agents, { task, group, project });
+        const template = group.command || agent?.command;
+
         const id = await terminals.open({
           cwd,
           command: template
@@ -81,6 +94,7 @@ export function AppShell() {
                 path: cwd,
                 history,
                 model: pickModel(task, group, agent),
+                tmp: scratch,
               })
             : undefined,
           env: {
@@ -109,6 +123,45 @@ export function AppShell() {
       }
     },
     [project, agents, notifications, finishTask],
+  );
+
+  /**
+   * Rejoins the agent already in the card's tmux session, and tells it what to
+   * do next. Nothing is re-run: the session is still there with everything it
+   * has read and written, which a fresh run would start over without.
+   */
+  const continueTask = useCallback(
+    async (task: Task, next: string) => {
+      if (!project) return;
+      try {
+        const id = await terminals.open({
+          // No command: `tmux new-session -A` rejoins the session that is
+          // already there rather than starting a second agent in it.
+          cwd: task.worktreePath ?? project.path,
+          title: task.title,
+          taskId: task.id,
+          onOutcome: (outcome) => void finishTask(task.id, outcome),
+          onIdle: () => void finishTask(task.id, "done"),
+          onWaiting: (waiting) => {
+            if (waiting) void announceApproval(notifications, task, project.name);
+            void taskApi
+              .update(task.id, { runState: waiting ? "needs_approval" : "running" })
+              .catch(() => undefined);
+          },
+        });
+        // Straight after the attach: the tty buffers input the agent has not
+        // read yet, so there is no prompt to wait for.
+        if (next.trim()) terminals.send(id, next.trim());
+        await taskApi.update(task.id, { runState: "running" }).catch(() => undefined);
+        setActiveSession(id);
+        setPreview(null);
+        setBoardVersion((version) => version + 1);
+        setSessionError(null);
+      } catch (cause) {
+        setSessionError(cause instanceof Error ? cause.message : String(cause));
+      }
+    },
+    [project, notifications, finishTask],
   );
 
   /**
@@ -156,15 +209,12 @@ export function AppShell() {
               hint="Add an organization and a project directory to start a board."
             />
           ) : view === "board" ? (
-            <Board
-              project={project}
-              refreshToken={boardVersion}
-              onOpenTask={openTask}
-            />
+            <Board project={project} refreshToken={boardVersion} onOpenTask={openTask} />
           ) : view === "terminal" && preview ? (
             <TaskPreview
               task={preview.task}
               onRun={() => void runTask(preview.task, preview.group, preview.groups)}
+              onContinue={(next) => void continueTask(preview.task, next)}
               onClose={() => setPreview(null)}
             />
           ) : view === "terminal" ? (

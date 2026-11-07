@@ -49,6 +49,48 @@ pub fn add_worktree(repo: &Path, worktree: &Path, branch: &str) -> Result<PathBu
     Ok(worktree.to_path_buf())
 }
 
+/// The repository's local branches, most recently committed to first — the ones
+/// someone is likely to still be working on.
+pub fn branches(repo: &Path) -> Result<Vec<String>> {
+    let listed = run(
+        repo,
+        &["for-each-ref", "--format=%(refname:short)", "--sort=-committerdate", "refs/heads"],
+    )?;
+    Ok(listed.lines().map(str::trim).filter(|line| !line.is_empty()).map(str::to_string).collect())
+}
+
+/// A generated branch name the repository is not already using.
+///
+/// `add_worktree` checks an existing branch out rather than failing on it, which
+/// is right for a card made from a pull request and wrong for a name we invented
+/// — two cards with the same title would land on one branch, each undoing the
+/// other.
+pub fn unused_branch(repo: &Path, title: &str) -> String {
+    let base = branch_name(title);
+    if !branch_exists(repo, &base) {
+        return base;
+    }
+    (2..100)
+        .map(|suffix| format!("{base}-{suffix}"))
+        .find(|name| !branch_exists(repo, name))
+        .unwrap_or(base)
+}
+
+/// Puts the repository itself on `branch`, creating it if it is not there yet.
+///
+/// For the card that runs in the project directory rather than a worktree of its
+/// own. Uncommitted work is git's problem to judge: it carries changes across
+/// where it safely can and refuses outright where it cannot, which is the
+/// behaviour anyone switching branches by hand already expects.
+pub fn checkout(repo: &Path, branch: &str) -> Result<()> {
+    if branch_exists(repo, branch) {
+        run(repo, &["checkout", branch])?;
+    } else {
+        run(repo, &["checkout", "-b", branch])?;
+    }
+    Ok(())
+}
+
 pub fn branch_exists(repo: &Path, branch: &str) -> bool {
     run(repo, &["rev-parse", "--verify", "--quiet", branch]).is_ok()
 }
@@ -120,6 +162,22 @@ mod tests {
         // Adding the same worktree twice is a no-op, not an error: a card that
         // is re-run must land in the tree it already has.
         add_worktree(&repo, &worktree, "agent/demo").unwrap();
+
+        // A card that wants no worktree of its own still gets its branch, in the
+        // repository itself — created the first time, switched to after that.
+        checkout(&repo, "agent/in-place").unwrap();
+        assert_eq!(current_branch(&repo).unwrap(), "agent/in-place");
+        checkout(&repo, "main").unwrap();
+        checkout(&repo, "agent/in-place").unwrap();
+        assert_eq!(current_branch(&repo).unwrap(), "agent/in-place");
+        run(&repo, &["checkout", "main"]).unwrap();
+
+        // The branch the worktree is on is one a card could be pointed at.
+        assert!(branches(&repo).unwrap().contains(&"agent/demo".to_string()));
+
+        // Two cards with the same title must not land on one branch.
+        assert_eq!(unused_branch(&repo, "demo"), "agent/demo-2");
+        assert_eq!(unused_branch(&repo, "something else"), "agent/something-else");
 
         remove_worktree(&repo, &worktree).unwrap();
         assert!(!worktree.exists());

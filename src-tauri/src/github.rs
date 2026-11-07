@@ -71,20 +71,25 @@ pub fn resolve(input: &str) -> Result<Resolved> {
 
     let repo = format!("{}/{}", reference.owner, reference.repo);
     let number = reference.number.to_string();
-    let fields = if reference.kind == "pull" {
-        "title,body,headRefName"
-    } else {
-        "title,body"
+    let pull = reference.kind == "pull";
+    let subcommand = if pull { "pr" } else { "issue" };
+
+    let view = |fields: &str| -> Option<serde_json::Value> {
+        let mut command = Command::new("gh");
+        command.args([subcommand, "view", &number, "--repo", &repo, "--json", fields]);
+        crate::process::run(command, Duration::from_secs(20))
+            .ok()
+            .filter(|output| output.ok)
+            .and_then(|output| serde_json::from_str(&output.stdout).ok())
     };
-    let subcommand = if reference.kind == "pull" { "pr" } else { "issue" };
 
-    let mut command = Command::new("gh");
-    command.args([subcommand, "view", &number, "--repo", &repo, "--json", fields]);
-
-    let looked_up = crate::process::run(command, Duration::from_secs(20))
-        .ok()
-        .filter(|output| output.ok)
-        .and_then(|output| serde_json::from_str::<serde_json::Value>(&output.stdout).ok());
+    let looked_up = if pull {
+        view("title,body,headRefName")
+    } else {
+        // `issueType` only exists in newer `gh`, and asking an older one for it
+        // fails the whole call — so the retry still gets the title and body.
+        view("title,body,labels,issueType").or_else(|| view("title,body,labels"))
+    };
 
     let field = |name: &str| -> Option<String> {
         looked_up
@@ -95,12 +100,60 @@ pub fn resolve(input: &str) -> Result<Resolved> {
             .filter(|value| !value.is_empty())
     };
 
+    // A pull request has a branch already; an issue gets one named after what it
+    // is and its number, which is the part of an issue that never changes.
+    let branch = if pull {
+        field("headRefName")
+    } else {
+        let labels = looked_up
+            .as_ref()
+            .and_then(|found| found.get("labels")?.as_array().cloned())
+            .unwrap_or_default();
+        let names: Vec<String> = labels
+            .iter()
+            .filter_map(|label| Some(label.get("name")?.as_str()?.to_string()))
+            .collect();
+        let issue_type = looked_up
+            .as_ref()
+            .and_then(|found| found.get("issueType")?.get("name")?.as_str())
+            .map(str::to_string);
+
+        Some(format!(
+            "{}-{}",
+            issue_kind(issue_type.as_deref(), &names),
+            reference.number
+        ))
+    };
+
     Ok(Resolved {
         title: field("title"),
         body: field("body"),
-        branch: field("headRefName"),
+        branch,
         reference: Some(reference),
     })
+}
+
+/// Which of the three kinds of work an issue is.
+///
+/// A repo that uses GitHub's native issue types has said so outright; one that
+/// does not has said it in a label instead. Anything unrecognised is a task,
+/// which is what most issues are.
+fn issue_kind(issue_type: Option<&str>, labels: &[String]) -> &'static str {
+    let classify = |value: &str| -> Option<&'static str> {
+        let value = value.to_ascii_lowercase();
+        if value.contains("bug") || value.contains("defect") {
+            Some("bug")
+        } else if value.contains("feature") || value.contains("enhancement") {
+            Some("feature")
+        } else {
+            None
+        }
+    };
+
+    issue_type
+        .and_then(classify)
+        .or_else(|| labels.iter().find_map(|label| classify(label)))
+        .unwrap_or("task")
 }
 
 #[cfg(test)]
@@ -118,6 +171,27 @@ mod tests {
         assert_eq!(pull.url, "https://github.com/owner/repo/pull/7");
 
         assert_eq!(parse("owner/repo/issues/9").unwrap().owner, "owner");
+    }
+
+    #[test]
+    fn an_issue_is_named_after_what_it_is() {
+        let none: [String; 0] = [];
+
+        // The native type is what a repo using them has said outright.
+        assert_eq!(issue_kind(Some("Bug"), &none), "bug");
+        assert_eq!(issue_kind(Some("Feature"), &none), "feature");
+        assert_eq!(issue_kind(Some("Task"), &none), "task");
+
+        // Otherwise its labels are what it actually has.
+        assert_eq!(issue_kind(None, &["needs-triage".into(), "bug".into()]), "bug");
+        assert_eq!(issue_kind(None, &["enhancement".into()]), "feature");
+
+        // A type the repo does use wins over a label that disagrees.
+        assert_eq!(issue_kind(Some("Bug"), &["enhancement".into()]), "bug");
+
+        // Anything unrecognised is a task, which is what most issues are.
+        assert_eq!(issue_kind(None, &none), "task");
+        assert_eq!(issue_kind(Some("Epic"), &["question".into()]), "task");
     }
 
     #[test]

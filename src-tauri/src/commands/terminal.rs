@@ -27,3 +27,10 @@ pub fn pty_kill(pty: State<PtyManager>, id: String) -> Result<()> {
 pub fn pty_sessions(pty: State<PtyManager>) -> Vec<String> {
     pty.ids()
 }
+
+/// Whether the card's shared session is still running, so it can be rejoined
+/// rather than started again.
+#[tauri::command]
+pub fn pty_shared(name: String) -> bool {
+    crate::pty::shared_exists(&name)
+}

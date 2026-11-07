@@ -4,7 +4,6 @@ import { test } from "node:test";
 
 import {
   isCommandCard,
-  parallelWork,
   pickAgent,
   pickModel,
   priorWork,
@@ -46,6 +45,7 @@ const task = {
   agentId: null,
   model: null,
   remote: true,
+  useWorktree: true,
   githubUrl: null,
   githubKind: null,
   githubNumber: null,
@@ -129,6 +129,20 @@ function run(overrides: Partial<TaskRun>): TaskRun {
     ...overrides,
   };
 }
+
+test("an agent is let into the card's scratch store, and only when there is one", () => {
+  const template = "claude --add-dir {tmp} {prompt}";
+
+  assert.match(
+    resolveCommand(template, { task, group, path: "/tmp/app", tmp: "/store/t1" }),
+    /--add-dir '\/store\/t1'/,
+  );
+  assert.equal(
+    resolveCommand(template, { task, group, path: "/tmp/app" }).includes("--add-dir"),
+    false,
+    "a card with no files drops the flag rather than passing an empty path",
+  );
+});
 
 test("a card with no history adds nothing to the prompt", () => {
   assert.equal(priorWork([], columnName), "");
@@ -237,60 +251,4 @@ test("a command card is handed to the agent untouched", () => {
     "a body the person wrote is kept",
   );
   assert.match(taskPrompt(task, noisy), /^Review the change\./, "ordinary cards are unchanged");
-});
-
-function card(overrides: Partial<Task>): Task {
-  return { ...task, id: `t-${overrides.title ?? "x"}`, ...overrides };
-}
-
-test("a board with nothing else running adds nothing to the prompt", () => {
-  assert.equal(parallelWork([task], task, columnName), "");
-  assert.equal(
-    parallelWork([task, card({ id: "t2", title: "Later" })], task, columnName),
-    "",
-    "a card nobody has touched is not worth a line",
-  );
-});
-
-test("the agent is told which cards are working beside it, and where", () => {
-  const digest = parallelWork(
-    [
-      task,
-      card({
-        id: "t2",
-        title: "Rewrite the auth guard",
-        runState: "running",
-        branch: "card/auth",
-        plan: "Move the guard into middleware.\nThen delete the old one.",
-      }),
-    ],
-    task,
-    columnName,
-  );
-
-  assert.match(
-    digest,
-    /"Rewrite the auth guard" — in "In Review", being worked on now on branch `card\/auth`/,
-  );
-  assert.match(digest, /Its plan: Move the guard into middleware\./);
-  assert.ok(!digest.includes("Then delete the old one"), "only the gist of a plan, not the plan");
-  assert.ok(!digest.includes("Fix the flaky test"), "a card is not told about itself");
-});
-
-test("the digest is capped, newest first, so a big board cannot flood the prompt", () => {
-  const cards = Array.from({ length: 20 }, (_, index) =>
-    card({
-      id: `t${index}`,
-      title: `Card ${index}`,
-      runState: "running",
-      plan: "y".repeat(400),
-      updatedAt: `2026-09-0${(index % 9) + 1}T00:00:00Z`,
-    }),
-  );
-
-  const digest = parallelWork(cards, task, columnName, { limit: 3 });
-
-  assert.equal(digest.match(/^- /gm)?.length, 3);
-  assert.ok(digest.includes("…"), "a long plan is cut down to its gist");
-  assert.ok(digest.length < 800, `the whole digest stays small, was ${digest.length}`);
 });

@@ -7,6 +7,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# The default token is read-only, and publishing a release writes to the repo.
+permissions:
+  contents: write
+
 jobs:
   installers:
     strategy:
@@ -14,13 +18,13 @@ jobs:
       matrix:
         include:
           - platform: ubuntu-22.04
-            args: ""
+            target: ""
           - platform: windows-latest
-            args: ""
+            target: ""
           - platform: macos-latest
-            args: "--target aarch64-apple-darwin"
+            target: aarch64-apple-darwin
           - platform: macos-latest
-            args: "--target x86_64-apple-darwin"
+            target: x86_64-apple-darwin
 
     runs-on: ${{ matrix.platform }}
     steps:
@@ -38,9 +42,12 @@ jobs:
           node-version: 22
           cache: npm
 
+      # A mac runner is Apple Silicon, so the Intel build has to have its target
+      # installed — one field drives both it and the build flag, which is what
+      # the two used to disagree about.
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ contains(matrix.args, 'aarch64') && 'aarch64-apple-darwin' || '' }}
+          targets: ${{ matrix.target }}
 
       - uses: swatinem/rust-cache@v2
         with:
@@ -56,4 +63,4 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: Agent Board ${{ github.ref_name }}
           releaseDraft: true
-          args: ${{ matrix.args }}
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}

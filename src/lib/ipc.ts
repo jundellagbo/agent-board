@@ -110,6 +110,8 @@ export const terminal = {
   resize: (id: string, cols: number, rows: number) => call<void>("pty_resize", { id, cols, rows }),
   kill: (id: string) => call<void>("pty_kill", { id }),
   sessions: () => call<string[]>("pty_sessions"),
+  /** Whether a card's shared session is still running and can be rejoined. */
+  shared: (name: string) => call<boolean>("pty_shared", { name }),
 
   /** Raw pty bytes, base64 so a chunk that splits a codepoint still round-trips. */
   onOutput: (handler: (event: { id: string; bytes: Uint8Array }) => void) =>
@@ -136,6 +138,9 @@ export const tmp = {
   add: (cardId: string, kind: TmpKind, name: string, contents: string) =>
     call<TmpFile>("add_tmp", { cardId, kind, name, contents }),
   read: (path: string) => call<string>("read_tmp", { path }),
+  /** The card's directory, or null when it has no files — an agent that must be
+   *  let in to read them needs the path, not the files. */
+  dir: (cardId: string) => call<string | null>("tmp_dir", { cardId }),
   /** Interactive region capture, straight onto the card. */
   screenshot: (cardId: string) => call<TmpFile>("screenshot_tmp", { cardId }),
   /** The clipboard's image, for a paste the webview handed us nothing for. */
@@ -144,6 +149,8 @@ export const tmp = {
   /** Everything a card collected, for when the card itself goes. */
   clear: (cardId: string) => call<void>("clear_tmp", { cardId }),
   reveal: (path: string) => call<string>("reveal_tmp", { path }),
+  /** Everything one project's cards are carrying, in the file manager. */
+  revealProject: (projectId: string) => call<string>("reveal_project_tmp", { projectId }),
 
   /** Fires whenever a card's files change, whoever changed them. */
   onChanged: (handler: (cardId: string) => void) =>
@@ -182,6 +189,8 @@ export const worktrees = {
   /** Returns null when the project is not a repo or has worktrees switched off. */
   ensure: (taskId: string) => call<Task | null>("ensure_worktree", { taskId }),
   remove: (taskId: string) => call<Task>("remove_worktree", { taskId }),
+  /** The branches a card can be pointed at; empty when the project is not a repo. */
+  branches: (projectId: string) => call<string[]>("list_branches", { projectId }),
 };
 
 export interface SearchHit {

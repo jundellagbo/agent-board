@@ -14,16 +14,18 @@ use crate::models::Agent;
 /// A blank model drops the `--model` flag rather than passing an empty value.
 const BUILT_INS: &[(&str, &str, Option<&str>, bool)] = &[
     // `--permission-mode auto` is the CLI's own auto mode: it keeps a card from
-    // stalling on a confirmation nobody is sitting there to answer.
+    // stalling on a confirmation nobody is sitting there to answer. `--add-dir`
+    // reaches the card's scratch store, which sits outside the worktree the CLI
+    // would otherwise confine itself to; it drops out for a card with no files.
     (
         "Claude Code",
-        "claude --permission-mode auto --model {model} {prompt}",
+        "claude --permission-mode auto --model {model} --add-dir {tmp} {prompt}",
         Some("claude-opus-5"),
         true,
     ),
     (
         "Claude Code (print)",
-        "claude -p --permission-mode auto --model {model} {prompt}",
+        "claude -p --permission-mode auto --model {model} --add-dir {tmp} {prompt}",
         Some("claude-opus-5"),
         false,
     ),

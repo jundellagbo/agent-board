@@ -2,6 +2,10 @@ export interface Draft {
   title: string;
   agentId: string;
   model: string;
+  /** An existing branch the card was pointed at, or a name typed for a new one. */
+  branch: string;
+  newBranch: string;
+  useWorktree: boolean;
 }
 
 const KEY = "agent-board.draft.";
@@ -20,7 +24,14 @@ export function readDraft(groupId: string): Draft | null {
     if (!raw) return null;
     const draft = JSON.parse(raw) as Partial<Draft>;
     if (typeof draft.title !== "string" || draft.title.trim() === "") return null;
-    return { title: draft.title, agentId: draft.agentId ?? "", model: draft.model ?? "" };
+    return {
+      title: draft.title,
+      agentId: draft.agentId ?? "",
+      model: draft.model ?? "",
+      branch: draft.branch ?? "",
+      newBranch: draft.newBranch ?? "",
+      useWorktree: draft.useWorktree ?? true,
+    };
   } catch {
     return null;
   }

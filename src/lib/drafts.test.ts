@@ -27,9 +27,23 @@ function withStorage(store: Map<string, string> | null) {
 
 test("a draft survives being written and read back", () => {
   withStorage(new Map());
-  writeDraft("todo", { title: "half a thought", agentId: "a1", model: "" });
+  writeDraft("todo", {
+    title: "half a thought",
+    agentId: "a1",
+    model: "",
+    branch: "main",
+    newBranch: "",
+    useWorktree: true,
+  });
 
-  assert.deepEqual(readDraft("todo"), { title: "half a thought", agentId: "a1", model: "" });
+  assert.deepEqual(readDraft("todo"), {
+    title: "half a thought",
+    agentId: "a1",
+    model: "",
+    branch: "main",
+    newBranch: "",
+    useWorktree: true,
+  });
   assert.equal(readDraft("other"), null, "drafts belong to their own column");
 
   clearDraft("todo");
@@ -40,7 +54,14 @@ test("an empty draft is no draft", () => {
   const store = new Map<string, string>();
   withStorage(store);
 
-  writeDraft("todo", { title: "   ", agentId: "", model: "" });
+  writeDraft("todo", {
+    title: "   ",
+    agentId: "",
+    model: "",
+    branch: "",
+    newBranch: "",
+    useWorktree: true,
+  });
   assert.equal(readDraft("todo"), null, "an empty composer must not reopen itself");
   assert.equal(store.size, 0);
 });
@@ -51,7 +72,16 @@ test("storage that refuses to work is survivable", () => {
   withStorage(null);
 
   assert.equal(readDraft("todo"), null);
-  assert.doesNotThrow(() => writeDraft("todo", { title: "x", agentId: "", model: "" }));
+  assert.doesNotThrow(() =>
+    writeDraft("todo", {
+      title: "x",
+      agentId: "",
+      model: "",
+      branch: "",
+      newBranch: "",
+      useWorktree: true,
+    }),
+  );
   assert.doesNotThrow(() => clearDraft("todo"));
 });
 

@@ -1,13 +1,19 @@
 "use client";
 
-import { PencilIcon, PlusIcon, XIcon } from "lucide-react";
+import { PaperclipIcon, PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
 import { useState } from "react";
 
 import { Combobox } from "./Combobox";
 import { OrgDialog } from "./OrgDialog";
 import { ProjectDialog } from "./ProjectDialog";
-import { Button } from "./ui";
-import { orgs as orgApi, projects as projectApi } from "@/lib/ipc";
+import { Button, Modal } from "./ui";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "./ui/context-menu";
+import { orgs as orgApi, projects as projectApi, tmp as tmpApi } from "@/lib/ipc";
 import { useStore } from "@/lib/store";
 import type { Project } from "@/lib/types";
 
@@ -16,12 +22,13 @@ type Dialog = { kind: "new-org" } | { kind: "rename-org" } | { kind: "new-projec
 export function Sidebar() {
   const { orgs, projects, org, project, selectOrg, selectProject, run } = useStore();
   const [dialog, setDialog] = useState<Dialog>(null);
-  // Deleting a board is destructive and irreversible, so the row itself asks
+  // Deleting an org is destructive and irreversible, so the row itself asks
   // before it happens rather than a modal the user can dismiss by reflex.
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<Project | null>(null);
 
   async function removeProject(target: Project) {
-    setConfirming(null);
+    setRemoving(null);
     if (target.id === project?.id) selectProject(null);
     await run(() => projectApi.remove(target.id));
   }
@@ -109,42 +116,67 @@ export function Sidebar() {
             {projects.map((item) => {
               const active = item.id === project?.id;
               return (
-                <li key={item.id} className="group relative">
-                  <button
-                    type="button"
-                    onClick={() => selectProject(item.id)}
-                    aria-current={active ? "true" : undefined}
-                    className={`w-full rounded-lg px-2 py-1.5 pr-7 text-left transition-colors ${
-                      active ? "bg-primary text-primary-foreground" : "hover:bg-muted"
-                    }`}
-                  >
-                    <span className="block truncate text-sm">{item.name}</span>
-                    <span
-                      className={`block truncate font-mono text-xs ${
-                        active ? "opacity-80" : "text-muted-foreground"
-                      }`}
-                    >
-                      {item.path}
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    title={confirming === item.id ? "Click again to remove" : "Remove project"}
-                    onClick={() =>
-                      confirming === item.id ? void removeProject(item) : setConfirming(item.id)
-                    }
-                    className={`absolute top-1.5 right-1.5 rounded px-1 text-xs opacity-0 transition group-hover:opacity-100 focus-visible:opacity-100 ${
-                      confirming === item.id ? "text-destructive opacity-100" : "text-muted-foreground"
-                    }`}
-                  >
-                    {confirming === item.id ? "sure?" : <XIcon className="size-3.5" />}
-                  </button>
+                <li key={item.id}>
+                  <ContextMenu>
+                    <ContextMenuTrigger
+                      render={
+                        <button
+                          type="button"
+                          onClick={() => selectProject(item.id)}
+                          aria-current={active ? "true" : undefined}
+                          className={`w-full rounded-lg px-2 py-1.5 text-left transition-colors ${
+                            active ? "bg-primary text-primary-foreground" : "hover:bg-muted"
+                          }`}
+                        >
+                          <span className="block truncate text-sm">{item.name}</span>
+                          <span
+                            className={`block truncate font-mono text-xs ${
+                              active ? "opacity-80" : "text-muted-foreground"
+                            }`}
+                          >
+                            {item.path}
+                          </span>
+                        </button>
+                      }
+                    />
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        onClick={() => void run(() => tmpApi.revealProject(item.id))}
+                      >
+                        <PaperclipIcon />
+                        Show temp files
+                      </ContextMenuItem>
+                      <ContextMenuItem variant="destructive" onClick={() => setRemoving(item)}>
+                        <TrashIcon />
+                        Remove project…
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
                 </li>
               );
             })}
           </ul>
         )}
       </nav>
+
+      {removing && (
+        <Modal title={`Remove “${removing.name}”?`} onClose={() => setRemoving(null)}>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Its cards, columns and run history go with it, along with the scratch files they
+              collected. The project directory itself is left alone.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setRemoving(null)}>
+                Keep it
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => void removeProject(removing)}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {dialog?.kind === "new-org" && <OrgDialog onClose={() => setDialog(null)} />}
       {dialog?.kind === "rename-org" && org && (

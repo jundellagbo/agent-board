@@ -537,6 +537,17 @@ export function shareName(taskId: string): string {
   return `agent-board-${taskId}`;
 }
 
+/**
+ * Whether the card's agent is still alive somewhere this app can rejoin.
+ *
+ * The pty went with the window that owned it, but the agent runs inside tmux,
+ * which did not — so a card whose terminal is gone is not necessarily a card
+ * whose agent is gone.
+ */
+export function resumable(taskId: string): Promise<boolean> {
+  return ptyApi.shared(shareName(taskId)).catch(() => false);
+}
+
 /** The transcript so far, for a run someone finishes by hand. */
 export function transcript(id: string): string {
   const session = sessions.get(id);

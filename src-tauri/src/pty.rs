@@ -217,6 +217,22 @@ fn tmux_wrapper(name: &str, parts: &[String]) -> Vec<String> {
     wrapped
 }
 
+/// Whether a card's agent is still sitting in its tmux session.
+///
+/// The pty this app owned dies with the window, but tmux outlives it — the
+/// agent is usually still at its own prompt, waiting to be told what to do
+/// next. `=name` is an exact match; without it tmux matches on prefix and one
+/// card would find another card's session.
+pub fn shared_exists(name: &str) -> bool {
+    if !tmux_available() {
+        return false;
+    }
+    let mut command = std::process::Command::new("tmux");
+    command.args(["has-session", "-t", &format!("={name}")]);
+    crate::process::run(command, std::time::Duration::from_secs(5))
+        .is_ok_and(|output| output.ok)
+}
+
 fn tmux_available() -> bool {
     crate::commands::editor::which("tmux").is_some()
 }

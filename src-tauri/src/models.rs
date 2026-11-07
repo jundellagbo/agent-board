@@ -145,6 +145,8 @@ pub struct Task {
     pub model: Option<String>,
     /// Open this card's session to remote control.
     pub remote: bool,
+    /// Give this card a checkout of its own, rather than the project directory.
+    pub use_worktree: bool,
     pub github_url: Option<String>,
     pub github_kind: Option<String>,
     pub github_number: Option<i64>,
@@ -161,7 +163,7 @@ impl Task {
     pub const COLUMNS: &'static str =
         "id, project_id, group_id, title, body, position, agent_id, model, remote, github_url, \
          github_kind, github_number, branch, worktree_path, run_state, last_run_id, created_at, \
-         updated_at, plan";
+         updated_at, plan, use_worktree";
 
     pub fn from_row(row: &Row) -> rusqlite::Result<Self> {
         Ok(Self {
@@ -184,6 +186,7 @@ impl Task {
             created_at: row.get(16)?,
             updated_at: row.get(17)?,
             plan: row.get(18)?,
+            use_worktree: row.get(19)?,
         })
     }
 }
