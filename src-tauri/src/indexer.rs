@@ -82,12 +82,17 @@ pub fn read_text(path: &Path) -> Option<String> {
     String::from_utf8(bytes).ok()
 }
 
+/// The path under the project, `/`-separated on every OS so search results
+/// read the same everywhere and match what git and the agents print.
 pub fn relative(root: &Path, path: &Path) -> Result<String> {
-    Ok(path
-        .strip_prefix(root)
-        .unwrap_or(path)
-        .to_string_lossy()
-        .to_string())
+    let Ok(relative) = path.strip_prefix(root) else {
+        return Ok(path.to_string_lossy().to_string());
+    };
+    Ok(relative
+        .components()
+        .map(|part| part.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/"))
 }
 
 #[cfg(test)]

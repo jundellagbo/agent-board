@@ -62,7 +62,7 @@ npm run tauri build -- --bundles deb   # just one
 Installing the Linux build:
 
 ```bash
-sudo dpkg -i "src-tauri/target/release/bundle/deb/Agent Board_0.2.0_amd64.deb"
+sudo dpkg -i "src-tauri/target/release/bundle/deb/Agent Board_0.2.1_amd64.deb"
 agent-board          # or launch "Agent Board" from your app menu
 ```
 
