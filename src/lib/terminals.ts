@@ -4,12 +4,13 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 
 import { detectApproval, stripAnsi } from "./approval";
-import { detectOutcome, type Outcome } from "./outcome";
 import { hasGoneIdle } from "./idle";
+import { recentLines } from "./recent";
 import { detectStatus } from "./status";
-import { detectSteps } from "./steps";
-import { detectPlan, planStarted, type PlanDecision } from "./plan";
-import { terminal as ptyApi, type SpawnOptions } from "./ipc";
+import { homeDir } from "@tauri-apps/api/path";
+
+import { terminal as ptyApi, tmp as tmpApi, type SpawnOptions } from "./ipc";
+import { mentionedFiles } from "./mentioned";
 
 export interface Session {
   id: string;
@@ -19,10 +20,12 @@ export interface Session {
   exitCode: number | null;
   /** The agent printed something that reads like a question and stopped. */
   waiting: boolean;
-  /** Set once the agent announced it had finished, even though it is still up. */
+  /** Set once the agent has gone idle and the run was closed, though it is still up. */
   finished: boolean;
   /** The agent's own status line, e.g. "Mustering… (12s)". */
   status: string | null;
+  /** The last few lines of conversation on screen, for the card's mini-terminal. */
+  recent: string[];
 }
 
 interface Attached extends Omit<Session, "finished"> {
@@ -30,11 +33,6 @@ interface Attached extends Omit<Session, "finished"> {
   fit: FitAddon;
   onExit?: (code: number, transcript: string) => void;
   onWaiting?: (waiting: boolean) => void;
-  onOutcome?: (outcome: Outcome, transcript: string) => void;
-  onPlan?: (decision: PlanDecision) => void;
-  onPlanning?: () => void;
-  /** A checklist step the agent says it has finished, numbered from 1. */
-  onStep?: (step: number) => void;
   onReady?: () => void;
   onIdle?: (transcript: string) => void;
   ready?: boolean;
@@ -43,12 +41,10 @@ interface Attached extends Omit<Session, "finished"> {
   /** The stripped tail as it last actually changed, and when that was. */
   settled: string;
   settledAt: number;
-  /** Set once the agent has announced an outcome, so it is announced once. */
-  reported?: Outcome;
-  planned?: boolean;
-  planning?: boolean;
-  /** Steps already handed to onStep — an agent repeats itself. */
-  ticked: number[];
+  /** Set once the idle sweep has closed the run, so it is closed once. */
+  reported?: "done";
+  /** Paths the card's store has already dealt with, so each is offered once. */
+  offered: Set<string>;
   /** Recent output, kept only long enough to spot a prompt at the end of it. */
   tail: string;
   // The xterm canvas lives here, detached from React. Switching views moves
@@ -84,7 +80,7 @@ let snapshot: Session[] = EMPTY;
 
 function notify() {
   snapshot = [...sessions.values()].map(
-    ({ id, title, cwd, taskId, exitCode, waiting, reported, status }) => ({
+    ({ id, title, cwd, taskId, exitCode, waiting, reported, status, recent }) => ({
       id,
       title,
       cwd,
@@ -93,6 +89,7 @@ function notify() {
       waiting,
       finished: reported !== undefined,
       status,
+      recent,
     }),
   );
   for (const listener of listeners) listener();
@@ -178,16 +175,15 @@ function theme() {
  * How long a session may sit completely unchanged before it counts as finished.
  *
  * An interactive agent does not exit when its work is done — it returns to its
- * own prompt and waits. Asking it to announce itself works only when it obliges,
- * so this is the signal that does not depend on cooperation.
+ * own prompt and waits — and the board no longer asks it to announce anything,
+ * so going idle is the only end of a run.
  *
- * The test is the screen text standing still, and nothing else. A working agent
- * is never still: its status line counts seconds and its spinner turns, both of
- * which change the text every tick. An earlier version also required the status
- * line to be absent, which called a working agent finished whenever that line
- * failed to be recognised.
+ * A working agent is never still: its status line counts seconds and its
+ * spinner turns. So a session still showing a status line is given a long
+ * window, only as a net for a status that froze on screen; the normal path is
+ * the status line disappearing and the screen then standing still.
  */
-const IDLE_AFTER = 45_000;
+const IDLE_AFTER = 120_000;
 /** The shorter wait for a session that is showing no status line at all — it is
  *  sitting at its own prompt, not working, so a card need not hang on for the
  *  full window before it moves. */
@@ -263,6 +259,26 @@ function screenText(session: Attached): string {
   return lines.join("\n").trimEnd();
 }
 
+let home: string | undefined;
+void homeDir()
+  .then((dir) => {
+    home = dir;
+  })
+  .catch(() => undefined);
+
+/** Puts screenshots and reports the agent mentions on its card as they appear. */
+function collectFiles(session: Attached, screen: string) {
+  if (!session.taskId) return;
+  const fresh = mentionedFiles(`${screen}\n${stripAnsi(session.tail)}`, home).filter(
+    (path) => !session.offered.has(path),
+  );
+  if (fresh.length === 0) return;
+  void tmpApi
+    .collect(session.taskId, fresh)
+    .then((settled) => settled.forEach((path) => session.offered.add(path)))
+    .catch(() => undefined);
+}
+
 /** Reads the screen of every session that has produced output since last time. */
 function scanScreens() {
   for (const session of sessions.values()) {
@@ -275,7 +291,7 @@ function scanScreens() {
       session.settledAt = Date.now();
     }
 
-    readMarks(session, screen);
+    collectFiles(session, screen);
 
     const status = detectStatus(screen);
     if (status && !session.ready) {
@@ -283,53 +299,22 @@ function scanScreens() {
       session.onReady?.();
     }
 
+    const recent = recentLines(screen);
+    const recentChanged = recent.join("\n") !== session.recent.join("\n");
+    if (recentChanged) session.recent = recent;
+
     const waiting = detectApproval(screen);
     const changed = status !== session.status || waiting !== session.waiting;
     session.status = status;
-    if (!changed) continue;
+    if (!changed) {
+      if (recentChanged) notify();
+      continue;
+    }
 
     const wasWaiting = session.waiting;
     session.waiting = waiting;
     notify();
     if (waiting !== wasWaiting) session.onWaiting?.(waiting);
-  }
-}
-
-/**
- * The board's own marks, read out of whichever text is to hand.
- *
- * Neither source sees everything. The byte tail holds only the last couple of
- * thousand characters, so a mark an agent printed before a burst of output has
- * already fallen out of it; the screen holds only what has not scrolled away.
- * Reading both is what stops a card waiting on the idle sweep for a step or an
- * outcome that was announced perfectly clearly. Each mark is acted on once,
- * whichever source finds it first.
- */
-function readMarks(session: Attached, text: string) {
-  if (!session.planned) {
-    const decision = detectPlan(text);
-    if (decision) {
-      session.planned = true;
-      session.onPlan?.(decision);
-    } else if (!session.planning && planStarted(text)) {
-      session.planning = true;
-      session.onPlanning?.();
-    }
-  }
-
-  if (session.onStep) {
-    for (const index of detectSteps(text)) {
-      if (session.ticked.includes(index)) continue;
-      session.ticked.push(index);
-      session.onStep(index + 1);
-    }
-  }
-
-  const outcome = detectOutcome(text);
-  if (outcome && outcome !== session.reported) {
-    session.reported = outcome;
-    notify();
-    session.onOutcome?.(outcome, stripAnsi(session.tail).trimEnd());
   }
 }
 
@@ -339,18 +324,15 @@ function observe(session: Attached, bytes: Uint8Array) {
   // more often than anyone can read.
   session.dirty = true;
 
-  readMarks(session, session.tail);
-
-  const status = detectStatus(session.tail);
-  if (status && !session.ready) {
+  // The status itself is read from the screen only: the byte tail keeps old
+  // spinner frames after the agent has stopped, which would hold a finished card
+  // on Working.
+  if (!session.ready && detectStatus(session.tail)) {
     session.ready = true;
     session.onReady?.();
   }
   const waiting = detectApproval(session.tail);
-  const changed = status !== session.status || waiting !== session.waiting;
-
-  session.status = status;
-  if (!changed) return;
+  if (waiting === session.waiting) return;
 
   const wasWaiting = session.waiting;
   session.waiting = waiting;
@@ -411,10 +393,6 @@ export async function open(
     taskId?: string;
     onExit?: (code: number, transcript: string) => void;
     onWaiting?: (waiting: boolean) => void;
-    onOutcome?: (outcome: Outcome, transcript: string) => void;
-    onPlan?: (decision: PlanDecision) => void;
-    onPlanning?: () => void;
-    onStep?: (step: number) => void;
     onReady?: () => void;
     onIdle?: (transcript: string) => void;
   },
@@ -478,18 +456,15 @@ export async function open(
     exitCode: null,
     waiting: false,
     status: null,
+    recent: [],
+    offered: new Set(),
     tail: "",
-    ticked: [],
     settled: "",
     settledAt: Date.now(),
     dirty: false,
     onExit: options.onExit,
     onWaiting: options.onWaiting,
     onIdle: options.onIdle,
-    onOutcome: options.onOutcome,
-    onPlan: options.onPlan,
-    onPlanning: options.onPlanning,
-    onStep: options.onStep,
     onReady: options.onReady,
     term,
     fit,

@@ -138,6 +138,10 @@ export const tmp = {
   add: (cardId: string, kind: TmpKind, name: string, contents: string) =>
     call<TmpFile>("add_tmp", { cardId, kind, name, contents }),
   read: (path: string) => call<string>("read_tmp", { path }),
+  /** Copies files the agent mentioned onto the card; returns the paths that need
+   *  no asking again (a file not written yet is left out). */
+  collect: (cardId: string, paths: string[]) =>
+    call<string[]>("collect_tmp", { cardId, paths }),
   /** The card's directory, or null when it has no files — an agent that must be
    *  let in to read them needs the path, not the files. */
   dir: (cardId: string) => call<string | null>("tmp_dir", { cardId }),
@@ -191,7 +195,17 @@ export const worktrees = {
   remove: (taskId: string) => call<Task>("remove_worktree", { taskId }),
   /** The branches a card can be pointed at; empty when the project is not a repo. */
   branches: (projectId: string) => call<string[]>("list_branches", { projectId }),
+  /** Every checkout of the project's repo, its own first; empty when not a repo. */
+  list: (projectId: string) => call<Worktree[]>("list_worktrees", { projectId }),
+  removeByPath: (projectId: string, path: string) =>
+    call<void>("remove_project_worktree", { projectId, path }),
 };
+
+export interface Worktree {
+  path: string;
+  branch: string | null;
+  main: boolean;
+}
 
 export interface SearchHit {
   path: string;

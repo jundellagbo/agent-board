@@ -41,8 +41,7 @@ export function AppShell() {
     groups: BoardGroup[];
   } | null>(null);
 
-  // The runner closes a run when the agent announces an outcome; this is for
-  // the agent that never does, so a card is never stranded on Running.
+  // Closes a run started by hand, or one someone marks Finished/Blocked.
   const finishTask = useCallback(async (taskId: string, outcome: "done" | "blocked") => {
     const [run] = await runApi.list(taskId).catch(() => []);
     const session = terminals.find(taskId);
@@ -103,10 +102,6 @@ export function AppShell() {
           },
           title: task.title,
           taskId: task.id,
-          // A card started by hand ends the same way as one the runner started:
-          // on the agent's own announcement. Without this it sat on Running
-          // until someone pressed Finished by hand.
-          onOutcome: (outcome) => void finishTask(task.id, outcome),
           onIdle: () => void finishTask(task.id, "done"),
           onWaiting: (waiting) => {
             if (waiting) void announceApproval(notifications, task, project.name);
@@ -140,7 +135,6 @@ export function AppShell() {
           cwd: task.worktreePath ?? project.path,
           title: task.title,
           taskId: task.id,
-          onOutcome: (outcome) => void finishTask(task.id, outcome),
           onIdle: () => void finishTask(task.id, "done"),
           onWaiting: (waiting) => {
             if (waiting) void announceApproval(notifications, task, project.name);

@@ -3,7 +3,7 @@ import { test } from "node:test";
 
 import { hasGoneIdle } from "./idle.ts";
 
-const AFTER = 45_000;
+const AFTER = 120_000;
 const now = 1_000_000;
 const PARKED = 12_000;
 const still = {

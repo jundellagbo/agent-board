@@ -161,7 +161,13 @@ pub fn delete_task(app: AppHandle, db: State<Db>, id: String) -> Result<()> {
     // left pointing at the worktree, and git would keep it registered forever.
     db.with(|conn| {
         let task = get(conn, &id)?;
-        if let Some(worktree) = task.worktree_path.as_deref() {
+        let shared: i64 = conn.query_row(
+            "SELECT count(*) FROM tasks WHERE worktree_path = ?1 AND id != ?2",
+            params![task.worktree_path, task.id],
+            |r| r.get(0),
+        )?;
+        // Cards added from a sidebar worktree share it; the last one out removes it.
+        if let Some(worktree) = task.worktree_path.as_deref().filter(|_| shared == 0) {
             let project = crate::commands::projects::get(conn, &task.project_id)?;
             let _ = crate::git::remove_worktree(
                 std::path::Path::new(&project.path),

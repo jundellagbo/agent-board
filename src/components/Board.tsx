@@ -16,17 +16,18 @@ import {
   horizontalListSortingStrategy,
   sortableKeyboardCoordinates,
 } from "@dnd-kit/sortable";
+import { GitBranchIcon, XIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
-import { AttachmentPreview } from "./Attachments";
+import { AttachmentPreview, CardFilesDialog } from "./Attachments";
 import { Column, columnDragId, groupIdFromDrag } from "./Column";
 import { Button, CheckField, Modal } from "./ui";
+import { Badge } from "./ui/badge";
 import { GroupDialog } from "./GroupDialog";
 import { TaskCardBody, type CardAction } from "./TaskCard";
 import { TaskDialog } from "./TaskDialog";
 import { useAttachments } from "@/lib/attachments";
 import { useBoard } from "@/lib/board";
-import { parseChecklist, toggleStep } from "@/lib/checklist";
 import { withFollowUp } from "@/lib/followup";
 import { nextClaim } from "@/lib/claim";
 import { announceApproval, announceCompletion } from "@/lib/notify";
@@ -73,7 +74,7 @@ export function Board({
   const [removing, setRemoving] = useState<Task | null>(null);
   const [editingCard, setEditingCard] = useState<Task | null>(null);
   const [previewing, setPreviewing] = useState<TmpFile | null>(null);
-  const [planFor, setPlanFor] = useState<Task | null>(null);
+  const [filesFor, setFilesFor] = useState<Task | null>(null);
   // Whatever this machine has; the menu says its name rather than "an editor".
   const [editor, setEditor] = useState<Editor | null>(null);
 
@@ -83,7 +84,14 @@ export function Board({
       .then((found) => setEditor(found[0] ?? null))
       .catch(() => setEditor(null));
   }, []);
-  const { agents, notifications, run } = useStore();
+  const { agents, notifications, run, branch: scope, selectProject } = useStore();
+  // A worktree picked in the sidebar narrows the board to the cards on its branch.
+  const shown = scope
+    ? columns.map((column) => ({
+        ...column,
+        tasks: column.tasks.filter((task) => task.branch === scope),
+      }))
+    : columns;
   // The whole store in one call, rather than a listener and a read per card.
   const { files: tmpFiles, remove: removeFile, reveal: revealFile } = useAttachments();
   const filesByCard = useMemo(() => {
@@ -96,6 +104,11 @@ export function Board({
   const statuses = Object.fromEntries(
     sessions.flatMap((session) =>
       session.taskId && session.status ? [[session.taskId, session.status]] : [],
+    ),
+  );
+  const recents = Object.fromEntries(
+    sessions.flatMap((session) =>
+      session.taskId && session.recent.length > 0 ? [[session.taskId, session.recent]] : [],
     ),
   );
   const autoRun = project.autoRun;
@@ -150,11 +163,6 @@ export function Board({
       return;
     }
 
-    if (action === "plan") {
-      setPlanFor(task);
-      return;
-    }
-
     if (action === "open") {
       // The project root, not the card's worktree: an editor window is where
       // you read the whole codebase, and a worktree is a partial view of it.
@@ -167,10 +175,7 @@ export function Board({
     }
 
     if (action === "files") {
-      // The store lives outside the project, so the file manager is the only
-      // place to actually work with what is in it.
-      const [file] = filesByCard[task.id] ?? [];
-      if (file) void revealFile(file.path);
+      setFilesFor(task);
       return;
     }
 
@@ -274,14 +279,33 @@ export function Board({
   return (
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
-        <CheckField
-          label="Run cards automatically"
-          checked={autoRun}
-          hint={autoRun ? undefined : "paused for this project"}
-          onChange={(checked) =>
-            void run(() => projectApi.update(project.id, { autoRun: checked }))
-          }
-        />
+        <div className="flex items-center gap-3">
+          <CheckField
+            label="Run cards automatically"
+            checked={autoRun}
+            hint={autoRun ? undefined : "paused for this project"}
+            onChange={(checked) =>
+              void run(() => projectApi.update(project.id, { autoRun: checked }))
+            }
+          />
+          {scope && (
+            <Badge variant="outline" className="gap-1 font-mono font-normal">
+              <GitBranchIcon />
+              <span className="max-w-64 truncate" title={scope}>
+                {scope}
+              </span>
+              <button
+                type="button"
+                aria-label="Show every branch"
+                title="Show every branch"
+                onClick={() => selectProject(project.id)}
+                className="rounded text-muted-foreground hover:text-foreground"
+              >
+                <XIcon className="size-3" />
+              </button>
+            </Badge>
+          )}
+        </div>
         {(error ?? openError) && (
           <p role="alert" className="text-xs text-destructive">
             {error ?? openError}
@@ -301,18 +325,16 @@ export function Board({
             items={columns.map((column) => columnDragId(column.group.id))}
             strategy={horizontalListSortingStrategy}
           >
-            {columns.map((column) => (
+            {shown.map((column) => (
               <Column
                 key={column.group.id}
                 column={column}
                 onAdd={addTask}
                 onOpen={(task, column) => onOpenTask(task, column, groups)}
                 onEdit={setEditing}
-                onToggleStep={(task, index) =>
-                  void updateTask(task.id, { body: toggleStep(task.body, index) })
-                }
                 onAction={(task, action) => void control(task, action)}
                 statuses={statuses}
+                recents={recents}
                 files={filesByCard}
                 onOpenFile={setPreviewing}
                 onRemoveFile={(file) => void removeFile(file.path)}
@@ -339,6 +361,20 @@ export function Board({
         </DragOverlay>
       </DndContext>
 
+      {filesFor && (
+        <CardFilesDialog
+          title={filesFor.title}
+          files={filesByCard[filesFor.id] ?? []}
+          onOpen={setPreviewing}
+          onRemove={(file) => void removeFile(file.path)}
+          onReveal={() => {
+            const [file] = filesByCard[filesFor.id] ?? [];
+            if (file) void revealFile(file.path);
+          }}
+          onClose={() => setFilesFor(null)}
+        />
+      )}
+
       {previewing && (
         <AttachmentPreview
           file={previewing}
@@ -347,8 +383,6 @@ export function Board({
           onReveal={() => void revealFile(previewing.path)}
         />
       )}
-
-      {planFor && <PlanDialog task={planFor} onClose={() => setPlanFor(null)} />}
 
       {editingCard && (
         <TaskDialog
@@ -415,37 +449,5 @@ export function Board({
         />
       )}
     </div>
-  );
-}
-
-/**
- * What the agent said it would do, for a card whose plan is buried in a
- * terminal somewhere. A card that was never planned says so rather than
- * showing an empty box.
- */
-function PlanDialog({ task, onClose }: { task: Task; onClose: () => void }) {
-  const steps = parseChecklist(task.plan);
-
-  return (
-    <Modal title={`Plan — ${task.title}`} onClose={onClose} width="sm:max-w-lg">
-      {steps.length > 0 ? (
-        <ol className="space-y-1.5 text-sm">
-          {steps.map((step, index) => (
-            <li key={`${index}-${step.text}`} className="flex items-start gap-2">
-              <span className="font-mono text-xs text-muted-foreground tabular-nums">
-                {index + 1}.
-              </span>
-              <span className={step.done ? "text-muted-foreground line-through" : ""}>
-                {step.text}
-              </span>
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="text-sm whitespace-pre-wrap text-muted-foreground">
-          {task.plan?.trim() || "No plan yet — the agent has not written one for this card."}
-        </p>
-      )}
-    </Modal>
   );
 }

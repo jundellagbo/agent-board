@@ -221,6 +221,53 @@ pub fn add(root: &Path, card_id: &str, kind: TmpKind, name: &str, bytes: &[u8]) 
         .ok_or_else(|| Error::Invalid(format!("could not write {name}")))
 }
 
+/// What an agent's output may point at that is worth keeping on its card.
+/// Source code is deliberately absent: that is the worktree's job, not the store's.
+const COLLECTED: &[&str] = &[
+    "png", "jpg", "jpeg", "gif", "webp", "svg", "avif", "pdf", "mp4", "webm", "mov", "md",
+    "txt", "log", "csv", "json", "html", "diff", "patch",
+];
+
+/// Copies files an agent mentioned into the card's response store, so a
+/// screenshot it saved to /tmp turns up on the card. A file already there under
+/// the same name and size is not copied again — agents repeat paths constantly.
+///
+/// Returns the paths that are settled, copied or deliberately skipped; a path
+/// that does not exist yet is left out so the caller asks again once the agent
+/// has actually written it.
+pub fn collect(root: &Path, card_id: &str, paths: &[String]) -> Result<Vec<String>> {
+    let store = card_dir(root, card_id)?;
+    let base = store.canonicalize().ok();
+    let mut held = read_card(root, card_id);
+    let mut settled = Vec::new();
+
+    for raw in paths {
+        let Ok(source) = PathBuf::from(raw).canonicalize() else { continue };
+        let Ok(metadata) = fs::metadata(&source) else { continue };
+        settled.push(raw.clone());
+
+        let inside = base.as_ref().is_some_and(|base| source.starts_with(base));
+        let wanted = source
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|e| COLLECTED.contains(&e.to_ascii_lowercase().as_str()));
+        if inside || !wanted || !metadata.is_file() || metadata.len() > MAX_BYTES {
+            continue;
+        }
+        let Some(name) = source.file_name().and_then(|n| n.to_str()) else { continue };
+        if held.iter().any(|file| file.name == name && file.size == metadata.len()) {
+            continue;
+        }
+        held.push(add(root, card_id, TmpKind::Response, name, &fs::read(&source)?)?);
+    }
+    Ok(settled)
+}
+
+#[tauri::command]
+pub fn collect_tmp(app: AppHandle, card_id: String, paths: Vec<String>) -> Result<Vec<String>> {
+    collect(&root(&app)?, &card_id, &paths)
+}
+
 #[tauri::command]
 pub fn list_tmp(app: AppHandle, card_id: Option<String>) -> Result<Vec<TmpFile>> {
     let root = root(&app)?;
@@ -515,6 +562,33 @@ mod tests {
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path).unwrap();
         path
+    }
+
+    #[test]
+    fn files_an_agent_mentions_are_collected_once() {
+        let root = scratch("collect");
+        let outside = scratch("collect-src");
+        let shot = outside.join("shot.png");
+        let code = outside.join("main.rs");
+        fs::write(&shot, b"png").unwrap();
+        fs::write(&code, b"fn main() {}").unwrap();
+        let paths = vec![
+            shot.to_string_lossy().to_string(),
+            code.to_string_lossy().to_string(),
+            "/no/such/file.png".to_string(),
+        ];
+
+        let settled = collect(&root, "card1", &paths).unwrap();
+        assert_eq!(settled.len(), 2, "a missing path is not settled, so it is asked about again");
+        let held = list(&root, Some("card1")).unwrap();
+        assert_eq!(held.len(), 1, "only the screenshot, not source code");
+        assert_eq!(held[0].kind, TmpKind::Response);
+
+        collect(&root, "card1", &paths).unwrap();
+        collect(&root, "card1", &[held[0].path.clone()]).unwrap();
+        assert_eq!(list(&root, Some("card1")).unwrap().len(), 1, "nothing is copied twice");
+        fs::remove_dir_all(&root).ok();
+        fs::remove_dir_all(&outside).ok();
     }
 
     #[test]

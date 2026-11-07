@@ -36,6 +36,8 @@ const SELECTION_KEY = "agent-board.selection";
 interface Selection {
   orgId: string | null;
   projectId: string | null;
+  /** A worktree's branch the board is narrowed to; null shows every card. */
+  branch?: string | null;
 }
 
 interface Store {
@@ -48,12 +50,13 @@ interface Store {
   projects: Project[];
   org: Organization | null;
   project: Project | null;
+  branch: string | null;
   view: View;
   loading: boolean;
   error: string | null;
   setView: (view: View) => void;
   selectOrg: (id: string | null) => void;
-  selectProject: (id: string | null) => void;
+  selectProject: (id: string | null, branch?: string | null) => void;
   refresh: () => Promise<void>;
   run: <T>(action: () => Promise<T>) => Promise<T | null>;
 }
@@ -63,7 +66,11 @@ const StoreContext = createContext<Store | null>(null);
 function readSelection(): Selection {
   if (typeof window === "undefined") return { orgId: null, projectId: null };
   try {
-    return { orgId: null, projectId: null, ...JSON.parse(localStorage.getItem(SELECTION_KEY) ?? "{}") };
+    return {
+      orgId: null,
+      projectId: null,
+      ...JSON.parse(localStorage.getItem(SELECTION_KEY) ?? "{}"),
+    };
   } catch {
     return { orgId: null, projectId: null };
   }
@@ -161,8 +168,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setView("board");
   }, []);
 
-  const selectProject = useCallback((projectId: string | null) => {
-    setSelection((current) => ({ ...current, projectId }));
+  const selectProject = useCallback((projectId: string | null, branch: string | null = null) => {
+    setSelection((current) => ({ ...current, projectId, branch }));
     setView("board");
   }, []);
 
@@ -194,6 +201,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       projects: visibleProjects,
       org,
       project,
+      branch: selection.branch ?? null,
       view,
       loading,
       error,
@@ -213,6 +221,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       visibleProjects,
       org,
       project,
+      selection.branch,
       view,
       loading,
       error,

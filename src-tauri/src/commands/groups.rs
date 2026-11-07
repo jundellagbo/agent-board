@@ -7,29 +7,28 @@ use crate::db::{new_id, now, Db};
 use crate::error::{Error, Result};
 use crate::models::BoardGroup;
 
-/// The board every project starts with: work, a human look, an agent review, a
-/// commit, done. Routing lives in the data, which is what lets the runner stay
-/// generic — it never knows a column called "Commit" exists.
+/// The board every project starts with: work, a human look, an agent review,
+/// done. Committing is left to a person, which is why no column does it. Routing
+/// lives in the data, which is what lets the runner stay generic.
 struct Seed {
     name: &'static str,
     board_type: &'static str,
     auto_run: bool,
     plans: bool,
     /// Where a card sits while its agent runs. `None` leaves it in place, which
-    /// reads better for the review and commit columns than shunting every card
-    /// back to In Progress.
+    /// reads better for the review column than shunting every card back to In
+    /// Progress.
     running: Option<usize>,
     success: Option<usize>,
     failure: Option<usize>,
     /// The column's standing instruction, prepended to every card's prompt.
     prompt: Option<&'static str>,
-    /// Overrides the agent's model. Only set where the work does not need the
-    /// expensive one — writing a commit message is not a reasoning problem.
+    /// Overrides the agent's model, for a column whose work does not need the
+    /// expensive one.
     model: Option<&'static str>,
 }
 
 const FOR_REVIEW: usize = 1;
-const COMPLETED: usize = 4;
 
 const DEFAULTS: &[Seed] = &[
     Seed {
@@ -74,23 +73,6 @@ const DEFAULTS: &[Seed] = &[
              what you left. Do not add features the card did not ask for.",
         ),
         model: None,
-    },
-    Seed {
-        name: "Commit",
-        board_type: "custom",
-        auto_run: true,
-        plans: false,
-        running: None,
-        success: Some(COMPLETED),
-        failure: None,
-        prompt: Some(
-            "Commit the work already on this branch. Stage what changed, write one commit \
-             message saying what changed and why, and stop there. Do not edit code, do not \
-             add files the work did not touch, and do not push.",
-        ),
-        // Cheapest current Claude model: this step reads a diff and writes a
-        // sentence, so paying for the reasoning model would be waste.
-        model: Some("claude-haiku-4-5"),
     },
     Seed {
         name: "Completed",

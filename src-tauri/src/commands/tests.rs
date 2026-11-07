@@ -16,26 +16,22 @@ fn project(db: &Db) -> String {
     .unwrap()
 }
 
-/// The cheap column has to stay cheap and stay narrow, or it stops being a
-/// commit step and starts being a second agent doing whatever it likes.
+/// Committing is a person's call, so a new board has no column that does it.
 #[test]
-fn the_commit_column_runs_the_cheap_model_on_a_narrow_instruction() {
+fn a_new_board_has_no_commit_column() {
     let db = Db::open_in_memory().unwrap();
     let project_id = project(&db);
 
-    let (prompt, model): (String, String) = db
+    let commits: i64 = db
         .with(|conn| {
             Ok(conn.query_row(
-                "SELECT prompt, model FROM board_groups WHERE project_id = ?1 AND name = 'Commit'",
+                "SELECT count(*) FROM board_groups WHERE project_id = ?1 AND name = 'Commit'",
                 params![project_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| r.get(0),
             )?)
         })
         .unwrap();
-
-    assert_eq!(model, "claude-haiku-4-5");
-    assert!(prompt.contains("do not push"), "the commit step must not push");
-    assert!(prompt.contains("Do not edit code"), "it commits, it does not work");
+    assert_eq!(commits, 0);
 
     let review: Option<String> = db
         .with(|conn| {
@@ -64,15 +60,15 @@ fn defaults_route_todo_straight_to_review() {
 
         assert_eq!(
             groups.iter().map(|g| g.0.as_str()).collect::<Vec<_>>(),
-            ["Todo", "For Review", "Agent Review", "Commit", "Completed"]
+            ["Todo", "For Review", "Agent Review", "Completed"]
         );
         assert_eq!(
             groups.iter().map(|g| g.1.as_str()).collect::<Vec<_>>(),
-            ["todo", "review", "custom", "custom", "done"]
+            ["todo", "review", "custom", "done"]
         );
         assert_eq!(
             groups.iter().filter(|g| g.2).map(|g| g.0.as_str()).collect::<Vec<_>>(),
-            ["Todo", "Agent Review", "Commit"],
+            ["Todo", "Agent Review"],
             "the columns the runner claims from"
         );
         assert!(groups[0].2, "Todo is the column the runner claims from");
@@ -130,7 +126,6 @@ fn the_seeded_columns_route_only_where_they_should() {
             ("Todo".into(), "-".into(), "For Review".into(), "-".into()),
             ("For Review".into(), "-".into(), "-".into(), "-".into()),
             ("Agent Review".into(), "-".into(), "-".into(), "-".into()),
-            ("Commit".into(), "-".into(), "Completed".into(), "-".into()),
             ("Completed".into(), "-".into(), "-".into(), "-".into()),
         ]
     );
@@ -545,10 +540,13 @@ fn settling_the_routing_matches_a_fresh_board() {
     db.with(|conn| Ok(conn.execute_batch(SETTLE)?)).unwrap();
     db.with(|conn| Ok(conn.execute_batch(DROP_LANE)?)).unwrap();
 
-    // The one column a fresh board no longer has, inert where it stands.
+    // The columns a fresh board no longer has stay where they stand: the lane
+    // inert, and Commit still handing on to Completed for whoever uses it.
     let mut settled = routes("old");
     let lane = settled.remove(1);
     assert_eq!(lane.0, "In Progress");
+    let commit = settled.remove(3);
+    assert_eq!(commit, ("Commit".into(), "Completed".into(), "-".into()));
     assert_eq!(settled, expected, "an old board ends up where a new one starts");
 
     let into_lane: i64 = db

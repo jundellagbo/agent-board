@@ -42,7 +42,6 @@ export function GroupDialog({
   const [boardType, setBoardType] = useState<BoardType>(group?.boardType ?? "custom");
   const [color, setColor] = useState(group?.color ?? "");
   const [autoRun, setAutoRun] = useState(group?.autoRun ?? false);
-  const [plans, setPlans] = useState(group?.plans ?? false);
   const [skills, setSkills] = useState((group?.skills ?? []).join(", "));
   const [agentId, setAgentId] = useState(group?.agentId ?? "");
   const [model, setModel] = useState(group?.model ?? "");
@@ -65,7 +64,7 @@ export function GroupDialog({
       boardType,
       color,
       autoRun,
-      plans,
+      plans: group?.plans ?? false,
       // A blank field is a cleared field: the Rust patch turns "" back into NULL.
       skills: skills
         .split(",")
@@ -218,13 +217,6 @@ export function GroupDialog({
           label="Run cards that land here automatically"
           checked={autoRun}
           onChange={(checked) => setAutoRun(checked)}
-        />
-
-        <CheckField
-          label="Plan before working"
-          hint="the agent decides if the card needs one"
-          checked={plans}
-          onChange={(checked) => setPlans(checked)}
         />
 
         <fieldset className="space-y-2 rounded-lg border border-border p-2.5">

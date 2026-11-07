@@ -30,31 +30,3 @@ export function parseChecklist(body: string | null): Step[] {
     return [{ text: match[2], done: match[1] === "x" || match[1] === "X" }];
   });
 }
-
-/** Writes the steps back as markdown checkboxes, which every agent understands. */
-export function formatChecklist(steps: Step[]): string {
-  return steps.map((step) => `- [${step.done ? "x" : " "}] ${step.text}`).join("\n");
-}
-
-/** Marks one step done, idempotently — an agent may announce the same step twice. */
-export function markStep(body: string | null, index: number): string {
-  const steps = parseChecklist(body);
-  if (index < 0 || index >= steps.length) return body ?? "";
-
-  return formatChecklist(
-    steps.map((step, at) => (at === index ? { ...step, done: true } : step)),
-  );
-}
-
-export function toggleStep(body: string | null, index: number): string {
-  const steps = parseChecklist(body);
-  if (index < 0 || index >= steps.length) return body ?? "";
-
-  return formatChecklist(
-    steps.map((step, at) => (at === index ? { ...step, done: !step.done } : step)),
-  );
-}
-
-export function progress(steps: Step[]): { done: number; total: number } {
-  return { done: steps.filter((step) => step.done).length, total: steps.length };
-}

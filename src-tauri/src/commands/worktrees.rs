@@ -45,6 +45,24 @@ pub fn ensure(app: &AppHandle, db: &Db, task_id: &str) -> Result<Option<Task>> {
         git::fetch_branch(repo, &branch);
     }
 
+    // A branch already checked out somewhere is joined there — git will not check
+    // one branch out twice, and a card added from a worktree in the sidebar is
+    // meant to run in that worktree.
+    if let Some(existing) = git::worktrees(repo)?
+        .into_iter()
+        .find(|worktree| worktree.branch.as_deref() == Some(branch.as_str()))
+    {
+        let path = (!existing.main).then_some(existing.path);
+        db.with(|conn| {
+            conn.execute(
+                "UPDATE tasks SET branch = ?2, worktree_path = ?3, updated_at = ?4 WHERE id = ?1",
+                params![task.id, branch, path, now()],
+            )?;
+            Ok(())
+        })?;
+        return db.with(|conn| tasks::get(conn, task_id)).map(Some);
+    }
+
     // The card has the final say: a project can hand every card its own checkout
     // and still have one card that runs in the project directory. That card
     // still gets its branch — an agent left on whatever happened to be checked
@@ -118,5 +136,43 @@ pub fn remove_worktree(db: State<Db>, task_id: String) -> Result<Task> {
             params![task.id, now()],
         )?;
         tasks::get(conn, &task_id)
+    })
+}
+
+/// Every checkout of the project's repository, the project's own first. Empty
+/// when the project is not a repo.
+#[tauri::command]
+pub fn list_worktrees(db: State<Db>, project_id: String) -> Result<Vec<git::Worktree>> {
+    let project = db.with(|conn| projects::get(conn, &project_id))?;
+    let repo = Path::new(&project.path);
+    if !git::is_repo(repo) {
+        return Ok(Vec::new());
+    }
+    git::worktrees(repo)
+}
+
+/// Removes a checkout by path — including ones no card made — and lets any card
+/// that was running in it fall back to the project directory.
+#[tauri::command]
+pub fn remove_project_worktree(db: State<Db>, project_id: String, path: String) -> Result<()> {
+    let project = db.with(|conn| projects::get(conn, &project_id))?;
+    let repo = Path::new(&project.path);
+    let listed = git::worktrees(repo)?;
+    let target = listed
+        .iter()
+        .find(|worktree| worktree.path == path)
+        .ok_or_else(|| Error::Invalid("not a worktree of this project".into()))?;
+    if target.main {
+        return Err(Error::Invalid("the project's own checkout cannot be removed".into()));
+    }
+    git::remove_worktree(repo, Path::new(&path))?;
+
+    db.with(|conn| {
+        conn.execute(
+            "UPDATE tasks SET worktree_path = NULL, updated_at = ?3
+             WHERE project_id = ?1 AND worktree_path = ?2",
+            params![project.id, path, now()],
+        )?;
+        Ok(())
     })
 }

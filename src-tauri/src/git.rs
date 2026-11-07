@@ -109,6 +109,39 @@ pub fn remove_worktree(repo: &Path, worktree: &Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Worktree {
+    pub path: String,
+    /// None for a detached HEAD.
+    pub branch: Option<String>,
+    /// The repository's own checkout, which git will not remove.
+    pub main: bool,
+}
+
+pub fn worktrees(repo: &Path) -> Result<Vec<Worktree>> {
+    Ok(parse_worktrees(&run(repo, &["worktree", "list", "--porcelain"])?))
+}
+
+fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
+    porcelain
+        .split("\n\n")
+        .enumerate()
+        .filter_map(|(index, block)| {
+            let mut path = None;
+            let mut branch = None;
+            for line in block.lines() {
+                if let Some(rest) = line.strip_prefix("worktree ") {
+                    path = Some(rest.to_string());
+                } else if let Some(rest) = line.strip_prefix("branch ") {
+                    branch = Some(rest.trim_start_matches("refs/heads/").to_string());
+                }
+            }
+            path.map(|path| Worktree { path, branch, main: index == 0 })
+        })
+        .collect()
+}
+
 fn run(cwd: &Path, args: &[&str]) -> Result<String> {
     let output = Command::new("git")
         .args(args)
@@ -129,6 +162,18 @@ mod tests {
 
     fn current_branch(repo: &Path) -> Result<String> {
         run(repo, &["rev-parse", "--abbrev-ref", "HEAD"])
+    }
+
+    #[test]
+    fn worktree_porcelain_is_read_with_branches() {
+        let listed = parse_worktrees(
+            "worktree /repo\nHEAD abc\nbranch refs/heads/main\n\nworktree /wt\nHEAD def\ndetached\n\nworktree /wt2\nHEAD 123\nbranch refs/heads/agent/x",
+        );
+        assert_eq!(listed.len(), 3);
+        assert_eq!(listed[0], Worktree { path: "/repo".into(), branch: Some("main".into()), main: true });
+        assert_eq!(listed[1].branch, None);
+        assert_eq!(listed[2].branch.as_deref(), Some("agent/x"));
+        assert!(!listed[2].main);
     }
 
     #[test]
@@ -178,6 +223,9 @@ mod tests {
         // Two cards with the same title must not land on one branch.
         assert_eq!(unused_branch(&repo, "demo"), "agent/demo-2");
         assert_eq!(unused_branch(&repo, "something else"), "agent/something-else");
+
+        let listed = worktrees(&repo).unwrap();
+        assert!(listed.iter().any(|w| w.branch.as_deref() == Some("agent/demo") && !w.main));
 
         remove_worktree(&repo, &worktree).unwrap();
         assert!(!worktree.exists());

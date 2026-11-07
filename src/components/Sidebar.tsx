@@ -1,7 +1,7 @@
 "use client";
 
-import { PaperclipIcon, PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
-import { useState } from "react";
+import { GitBranchIcon, PaperclipIcon, PencilIcon, PlusIcon, TrashIcon, XIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 
 import { Combobox } from "./Combobox";
 import { OrgDialog } from "./OrgDialog";
@@ -13,19 +13,52 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "./ui/context-menu";
-import { orgs as orgApi, projects as projectApi, tmp as tmpApi } from "@/lib/ipc";
+import {
+  orgs as orgApi,
+  projects as projectApi,
+  tmp as tmpApi,
+  worktrees as worktreeApi,
+  type Worktree,
+} from "@/lib/ipc";
 import { useStore } from "@/lib/store";
 import type { Project } from "@/lib/types";
 
 type Dialog = { kind: "new-org" } | { kind: "rename-org" } | { kind: "new-project" } | null;
 
 export function Sidebar() {
-  const { orgs, projects, org, project, selectOrg, selectProject, run } = useStore();
+  const { orgs, projects, org, project, branch, selectOrg, selectProject, run } = useStore();
   const [dialog, setDialog] = useState<Dialog>(null);
   // Deleting an org is destructive and irreversible, so the row itself asks
   // before it happens rather than a modal the user can dismiss by reflex.
   const [confirming, setConfirming] = useState<string | null>(null);
   const [removing, setRemoving] = useState<Project | null>(null);
+  const [checkouts, setCheckouts] = useState<Record<string, Worktree[]>>({});
+  const [droppingTree, setDroppingTree] = useState<{ project: Project; tree: Worktree } | null>(
+    null,
+  );
+
+  const loadCheckouts = useCallback(async () => {
+    const entries = await Promise.all(
+      projects.map(
+        async (item) => [item.id, await worktreeApi.list(item.id).catch(() => [])] as const,
+      ),
+    );
+    setCheckouts(Object.fromEntries(entries));
+  }, [projects]);
+
+  // Cards add worktrees while they run, so the list is re-read rather than
+  // trusted from the first load.
+  useEffect(() => {
+    void loadCheckouts();
+    const timer = window.setInterval(() => void loadCheckouts(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [loadCheckouts]);
+
+  async function removeTree(target: { project: Project; tree: Worktree }) {
+    setDroppingTree(null);
+    await run(() => worktreeApi.removeByPath(target.project.id, target.tree.path));
+    await loadCheckouts();
+  }
 
   async function removeProject(target: Project) {
     setRemoving(null);
@@ -115,6 +148,9 @@ export function Sidebar() {
           <ul className="space-y-0.5">
             {projects.map((item) => {
               const active = item.id === project?.id;
+              const trees = checkouts[item.id] ?? [];
+              const own = trees.find((tree) => tree.main);
+              const others = trees.filter((tree) => !tree.main);
               return (
                 <li key={item.id}>
                   <ContextMenu>
@@ -136,6 +172,17 @@ export function Sidebar() {
                           >
                             {item.path}
                           </span>
+                          {own?.branch && (
+                            <span
+                              className={`mt-0.5 flex items-center gap-1 truncate font-mono text-xs ${
+                                active ? "opacity-80" : "text-muted-foreground"
+                              }`}
+                              title={own.branch}
+                            >
+                              <GitBranchIcon className="size-3 shrink-0" />
+                              <span className="truncate">{own.branch}</span>
+                            </span>
+                          )}
                         </button>
                       }
                     />
@@ -152,6 +199,48 @@ export function Sidebar() {
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>
+                  {others.length > 0 && (
+                    <ul className="mt-0.5 ml-3 space-y-px border-l border-border pl-2">
+                      {others.map((tree) => {
+                        const picked = active && tree.branch !== null && tree.branch === branch;
+                        return (
+                          <li
+                            key={tree.path}
+                            className={`group flex items-center gap-1 rounded transition-colors ${
+                              picked ? "bg-muted" : "hover:bg-muted"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              disabled={!tree.branch}
+                              title={
+                                tree.branch
+                                  ? `Show and add cards on ${tree.branch}\n${tree.path}`
+                                  : tree.path
+                              }
+                              aria-current={picked ? "true" : undefined}
+                              onClick={() => selectProject(item.id, tree.branch)}
+                              className={`flex min-w-0 flex-1 items-center gap-1 px-1 py-0.5 text-left font-mono text-xs ${
+                                picked ? "text-foreground" : "text-muted-foreground"
+                              } disabled:cursor-default`}
+                            >
+                              <GitBranchIcon className="size-3 shrink-0" />
+                              <span className="min-w-0 truncate">{tree.branch ?? "detached"}</span>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Remove worktree ${tree.branch ?? tree.path}`}
+                              title="Remove worktree"
+                              onClick={() => setDroppingTree({ project: item, tree })}
+                              className="mr-0.5 rounded p-0.5 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100"
+                            >
+                              <XIcon className="size-3" />
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </li>
               );
             })}
@@ -171,6 +260,31 @@ export function Sidebar() {
                 Keep it
               </Button>
               <Button size="sm" variant="destructive" onClick={() => void removeProject(removing)}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {droppingTree && (
+        <Modal title="Remove worktree?" onClose={() => setDroppingTree(null)}>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-mono">{droppingTree.tree.path}</span> is deleted with any
+              uncommitted changes in it.
+              {droppingTree.tree.branch && (
+                <>
+                  {" "}
+                  The branch <span className="font-mono">{droppingTree.tree.branch}</span> is kept.
+                </>
+              )}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setDroppingTree(null)}>
+                Keep it
+              </Button>
+              <Button size="sm" variant="destructive" onClick={() => void removeTree(droppingTree)}>
                 Remove
               </Button>
             </div>

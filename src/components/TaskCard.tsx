@@ -7,7 +7,6 @@ import {
   CircleStopIcon,
   FolderOpenIcon,
   GitBranchIcon,
-  MapIcon,
   PaperclipIcon,
   PencilIcon,
   PlayIcon,
@@ -25,22 +24,11 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "./ui/context-menu";
-import { Checkbox } from "./ui";
 import { Badge } from "./ui/badge";
-import { parseChecklist, progress } from "@/lib/checklist";
 import type { RunState, Task, TmpFile } from "@/lib/types";
 
 export type CardAction =
-  | "interrupt"
-  | "continue"
-  | "block"
-  | "drop"
-  | "remote"
-  | "plan"
-  | "remove"
-  | "edit"
-  | "open"
-  | "files";
+  "interrupt" | "continue" | "block" | "drop" | "remote" | "remove" | "edit" | "open" | "files";
 
 const LIVE: RunState[] = ["queued", "planning", "running", "needs_approval"];
 
@@ -51,7 +39,15 @@ const ACTIONS: { id: CardAction; label: string; icon: typeof PlayIcon; danger?: 
   { id: "drop", label: "Drop — abandon this run", icon: TrashIcon, danger: true },
 ];
 
-function Controls({ task, onAction }: { task: Task; onAction: (action: CardAction) => void }) {
+function Controls({
+  task,
+  fileCount,
+  onAction,
+}: {
+  task: Task;
+  fileCount: number;
+  onAction: (action: CardAction) => void;
+}) {
   const live = LIVE.includes(task.runState);
 
   return (
@@ -77,19 +73,22 @@ function Controls({ task, onAction }: { task: Task; onAction: (action: CardActio
         <RadioTowerIcon className="size-3.5" />
       </button>
 
-      <button
-        type="button"
-        title="Show this card's plan"
-        aria-label="Show plan"
-        onPointerDown={(event) => event.stopPropagation()}
-        onClick={(event) => {
-          event.stopPropagation();
-          onAction("plan");
-        }}
-        className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-muted hover:text-foreground"
-      >
-        <MapIcon className="size-3.5" />
-      </button>
+      {fileCount > 0 && (
+        <button
+          type="button"
+          title="Show all of this card's files"
+          aria-label={`Show all files (${fileCount})`}
+          onPointerDown={(event) => event.stopPropagation()}
+          onClick={(event) => {
+            event.stopPropagation();
+            onAction("files");
+          }}
+          className="flex items-center gap-0.5 rounded p-1 text-muted-foreground/70 transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <PaperclipIcon className="size-3.5" />
+          <span className="font-mono text-[0.6875rem] tabular-nums">{fileCount}</span>
+        </button>
+      )}
 
       {live &&
         ACTIONS.map(({ id, label, icon: Icon, danger }) => (
@@ -115,100 +114,71 @@ function Controls({ task, onAction }: { task: Task; onAction: (action: CardActio
   );
 }
 
-function Checklist({ task, onToggle }: { task: Task; onToggle?: (index: number) => void }) {
-  const steps = parseChecklist(task.body);
-  if (steps.length === 0) return null;
-
-  const { done, total } = progress(steps);
+/**
+ * What the agent says it is doing right now, e.g. "Jitterbugging… (12s)".
+ *
+ * The row has a fixed height and truncates, so the status changing every second
+ * never moves the cards underneath; it is only drawn while a run is live.
+ */
+function Activity({ task, status }: { task: Task; status?: string }) {
+  if (!LIVE.includes(task.runState)) return null;
+  const label = task.runState === "needs_approval" ? "Waiting for you" : (status ?? "Working…");
   return (
     <div className="mt-1.5 space-y-1">
-      <div className="flex items-center gap-2">
-        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-primary transition-[width]"
-            style={{ width: `${(done / total) * 100}%` }}
-          />
-        </div>
-        <span className="font-mono text-xs tabular-nums text-muted-foreground">
-          {done}/{total}
-        </span>
+      <div className="h-1 overflow-hidden rounded-full bg-muted">
+        <span className="activity-bar block h-full w-1/3 rounded-full bg-primary" />
       </div>
-
-      <ul className="space-y-0.5">
-        {steps.map((step, index) => (
-          <li key={`${index}-${step.text}`} className="flex items-start gap-1.5 text-xs">
-            <Checkbox
-              checked={step.done}
-              disabled={!onToggle}
-              aria-label={step.text}
-              className="mt-0.5 size-3.5"
-              // The card is draggable and opens on click; a checkbox inside it
-              // has to keep both from firing.
-              onPointerDown={(event) => event.stopPropagation()}
-              onClick={(event) => event.stopPropagation()}
-              onCheckedChange={() => onToggle?.(index)}
-            />
-            <span
-              className={`min-w-0 wrap-anywhere ${step.done ? "text-muted-foreground line-through" : ""}`}
-            >
-              {step.text}
-            </span>
-          </li>
-        ))}
-      </ul>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <p className="h-4 truncate font-mono text-[0.6875rem] leading-4 text-primary">
+              {label}
+            </p>
+          }
+        />
+        <TooltipContent>{label}</TooltipContent>
+      </Tooltip>
     </div>
   );
 }
 
-/**
- * That the agent is working, without spelling out what it is doing.
- *
- * Its status line changes every second or two and is as long as it likes, so
- * showing it as text moved every card underneath it all run long. The rail is
- * always drawn, whether or not anything is happening inside it, so the card is
- * exactly as tall when the agent starts as when it stops.
- */
-function Activity({ task, status }: { task: Task; status?: string }) {
+/** The agent's last few lines, so a card says what is happening without a trip to its terminal. */
+function MiniTerminal({ lines }: { lines?: string[] }) {
+  if (!lines || lines.length === 0) return null;
   return (
-    <div className="mt-1.5 h-1">
-      {LIVE.includes(task.runState) && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <div className="h-1 overflow-hidden rounded-full bg-muted">
-                <span className="activity-bar block h-full w-1/3 rounded-full bg-primary" />
-              </div>
-            }
-          />
-          <TooltipContent>{status ?? "Working…"}</TooltipContent>
-        </Tooltip>
-      )}
-    </div>
+    <pre
+      aria-label="Latest terminal output"
+      className="mt-1.5 overflow-hidden rounded-md border border-border bg-background px-2 py-1 font-mono text-[0.6875rem] leading-snug text-muted-foreground"
+    >
+      {lines.map((line, index) => (
+        <span key={index} className="block truncate">
+          {line}
+        </span>
+      ))}
+    </pre>
   );
 }
 
 export function TaskCardBody({
   task,
   dragging,
-  onToggleStep,
   onAction,
   status,
+  recent,
   files = [],
   onOpenFile,
   onRemoveFile,
 }: {
   task: Task;
   dragging?: boolean;
-  onToggleStep?: (index: number) => void;
   onAction?: (action: CardAction) => void;
   status?: string;
+  recent?: string[];
   /** What this card was given and what its agent handed back. */
   files?: TmpFile[];
   onOpenFile?: (file: TmpFile) => void;
   onRemoveFile?: (file: TmpFile) => void;
 }) {
-  const steps = parseChecklist(task.body);
-
   return (
     <article
       className={`relative rounded-lg border border-border bg-card px-2.5 py-2 text-left shadow-sm ${
@@ -226,13 +196,13 @@ export function TaskCardBody({
           attachment picker writes file paths straight into it, and a path is a
           single unbreakable word wider than any column. */}
       <p className="line-clamp-3 pr-24 text-[0.9375rem] leading-snug wrap-anywhere">{task.title}</p>
-      {task.body && steps.length === 0 && (
+      {task.body && (
         <p className="mt-1 line-clamp-2 text-xs text-muted-foreground wrap-anywhere">{task.body}</p>
       )}
       <Activity task={task} status={status} />
-      <Checklist task={task} onToggle={onToggleStep} />
+      <MiniTerminal lines={recent} />
       {onOpenFile && <AttachmentStrip files={files} onOpen={onOpenFile} onRemove={onRemoveFile} />}
-      {onAction && <Controls task={task} onAction={onAction} />}
+      {onAction && <Controls task={task} fileCount={files.length} onAction={onAction} />}
       {task.githubNumber !== null && (
         <p className="mt-1 font-mono text-xs text-muted-foreground">
           {task.githubKind === "pull" ? "PR" : "issue"} #{task.githubNumber}
@@ -259,9 +229,9 @@ export function TaskCardBody({
 export function TaskCard({
   task,
   onOpen,
-  onToggleStep,
   onAction,
   status,
+  recent,
   files,
   onOpenFile,
   onRemoveFile,
@@ -269,9 +239,9 @@ export function TaskCard({
 }: {
   task: Task;
   onOpen: (task: Task) => void;
-  onToggleStep: (task: Task, index: number) => void;
   onAction: (task: Task, action: CardAction) => void;
   status?: string;
+  recent?: string[];
   files?: TmpFile[];
   onOpenFile: (file: TmpFile) => void;
   onRemoveFile: (file: TmpFile) => void;
@@ -305,9 +275,9 @@ export function TaskCard({
             >
               <TaskCardBody
                 task={task}
-                onToggleStep={(index) => onToggleStep(task, index)}
                 onAction={(action) => onAction(task, action)}
                 status={status}
+                recent={recent}
                 files={files}
                 onOpenFile={onOpenFile}
                 onRemoveFile={onRemoveFile}
@@ -329,7 +299,7 @@ export function TaskCard({
           {files && files.length > 0 && (
             <ContextMenuItem onClick={() => onAction(task, "files")}>
               <PaperclipIcon />
-              Open temp files
+              Show all files
             </ContextMenuItem>
           )}
           <ContextMenuItem variant="destructive" onClick={() => onAction(task, "remove")}>

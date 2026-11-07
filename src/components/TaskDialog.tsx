@@ -49,7 +49,7 @@ export function TaskDialog({
             rows={5}
             value={body}
             onChange={(event) => setBody(event.target.value)}
-            placeholder="A numbered list becomes the card's checklist."
+            placeholder="What should the agent do?"
             className="resize-none"
           />
         </Field>

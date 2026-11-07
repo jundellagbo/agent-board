@@ -38,9 +38,9 @@ export function Column({
   onAdd,
   onOpen,
   onEdit,
-  onToggleStep,
   onAction,
   statuses,
+  recents,
   files,
   onOpenFile,
   onRemoveFile,
@@ -50,9 +50,9 @@ export function Column({
   onAdd: (patch: TaskPatch, groupId: string, id?: string) => void;
   onOpen: (task: Task, group: ColumnData["group"]) => void;
   onEdit: (group: ColumnData["group"]) => void;
-  onToggleStep: (task: Task, index: number) => void;
   onAction: (task: Task, action: CardAction) => void;
   statuses: Record<string, string>;
+  recents: Record<string, string[]>;
   /** Every card's tmp files, keyed by card — read once for the whole board. */
   files: Record<string, TmpFile[]>;
   onOpenFile: (file: TmpFile) => void;
@@ -61,7 +61,7 @@ export function Column({
 }) {
   const { group, tasks } = column;
   const composer = useRef<HTMLFormElement>(null);
-  const { agents, project } = useStore();
+  const { agents, project, branch: scope } = useStore();
   // What this column would run if the card said nothing — shown as the default
   // so the choice is visible before it matters.
   const defaultAgent = pickAgent(agents, {
@@ -93,12 +93,17 @@ export function Column({
   // Empty means a new branch, named after the card once it runs. A card only
   // needs a branch of its own when the project is a repo, so the choice is only
   // offered when there is something to choose between.
-  const [branch, setBranch] = useState("");
+  // A board narrowed to one worktree adds its cards on that worktree's branch.
+  const [branch, setBranch] = useState(scope ?? "");
   const [newBranch, setNewBranch] = useState("");
   const [branches, setBranches] = useState<string[]>([]);
   // Two agents editing one working tree overwrite each other, so a card gets its
   // own checkout unless someone says otherwise.
   const [useWorktree, setUseWorktree] = useState(true);
+
+  useEffect(() => {
+    if (!composing) setBranch(scope ?? "");
+  }, [scope, composing]);
 
   useEffect(() => {
     if (!composing) return;
@@ -148,7 +153,7 @@ export function Column({
     setTitle("");
     setAgentId("");
     setModel("");
-    setBranch("");
+    setBranch(scope ?? "");
     setNewBranch("");
     setUseWorktree(true);
     setComposing(false);
@@ -254,9 +259,9 @@ export function Column({
                 key={task.id}
                 task={task}
                 onOpen={(picked) => onOpen(picked, group)}
-                onToggleStep={onToggleStep}
                 onAction={onAction}
                 status={statuses[task.id]}
+                recent={recents[task.id]}
                 files={files[task.id]}
                 onOpenFile={onOpenFile}
                 onRemoveFile={onRemoveFile}
@@ -302,7 +307,7 @@ export function Column({
                 if (event.key === "Escape") reset();
               }}
               rows={3}
-              placeholder="What should the agent do? A numbered list becomes a checklist."
+              placeholder="What should the agent do?"
               className="resize-none bg-card"
             />
             {looksLikeGithub(title) && (

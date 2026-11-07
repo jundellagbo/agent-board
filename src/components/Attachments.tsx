@@ -131,6 +131,98 @@ export function AttachmentStrip({
   );
 }
 
+/** Everything a card is carrying, larger than the strip and with names. */
+export function CardFilesDialog({
+  title,
+  files,
+  onOpen,
+  onRemove,
+  onReveal,
+  onClose,
+}: {
+  title: string;
+  files: TmpFile[];
+  onOpen: (file: TmpFile) => void;
+  onRemove?: (file: TmpFile) => void;
+  onReveal?: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal title={`Files — ${title}`} onClose={onClose} width="sm:max-w-2xl">
+      <div className="space-y-3">
+        {files.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nothing yet. Files you attach, and screenshots or reports the agent mentions, land here.
+          </p>
+        ) : (
+          <ul className="grid max-h-[60vh] grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-2 overflow-y-auto">
+            {files.map((file) => (
+              <li key={file.path} className="min-w-0">
+                <FileTile
+                  file={file}
+                  onOpen={() => onOpen(file)}
+                  onRemove={onRemove && (() => onRemove(file))}
+                />
+              </li>
+            ))}
+          </ul>
+        )}
+        {onReveal && files.length > 0 && (
+          <div className="flex justify-end">
+            <Button size="sm" variant="outline" onClick={onReveal}>
+              Show in file manager
+            </Button>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function FileTile({
+  file,
+  onOpen,
+  onRemove,
+}: {
+  file: TmpFile;
+  onOpen: () => void;
+  onRemove?: () => void;
+}) {
+  const image = useImage(file);
+  return (
+    <div className="group/tile relative">
+      <button
+        type="button"
+        onClick={onOpen}
+        title={file.name}
+        className={`flex w-full flex-col overflow-hidden rounded-md border text-left transition-colors hover:border-ring ${
+          file.kind === "response" ? "border-primary/50" : "border-border"
+        }`}
+      >
+        <span className="flex aspect-video items-center justify-center bg-muted">
+          {image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={image} alt="" className="size-full object-cover" />
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">{extension(file.name)}</span>
+          )}
+        </span>
+        <span className="truncate px-1.5 py-1 text-xs">{file.name}</span>
+      </button>
+      {onRemove && (
+        <button
+          type="button"
+          aria-label={`Remove ${file.name}`}
+          onClick={onRemove}
+          className="absolute top-1 right-1 hidden rounded-full bg-card p-0.5 text-muted-foreground shadow-sm hover:text-destructive group-hover/tile:block"
+        >
+          <XIcon className="size-3" />
+        </button>
+      )}
+    </div>
+  );
+}
+
 function size(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
@@ -160,7 +252,11 @@ export function AttachmentPreview({
             <img src={image} alt={file.name} className="max-h-[60vh] object-contain" />
           ) : (
             <span className="flex items-center gap-2 text-sm text-muted-foreground">
-              {file.mime.startsWith("text/") ? <FileTextIcon className="size-4" /> : <PaperclipIcon className="size-4" />}
+              {file.mime.startsWith("text/") ? (
+                <FileTextIcon className="size-4" />
+              ) : (
+                <PaperclipIcon className="size-4" />
+              )}
               Nothing to show here — open it in the file manager.
             </span>
           )}
