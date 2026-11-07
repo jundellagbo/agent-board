@@ -1,7 +1,20 @@
-import { pickAgent, pickModel, priorWork, resolveCommand, taskPrompt } from "./agent";
+import {
+  pickAgent,
+  pickModel,
+  priorWork,
+  resolveCommand,
+  taskPrompt,
+  withMcpConfig,
+} from "./agent";
 import { nextClaim, type Column } from "./claim";
 import { REMOTE_COMMAND } from "./remote";
-import { runs as runApi, tasks as taskApi, tmp as tmpApi, worktrees as worktreeApi } from "./ipc";
+import {
+  browser as browserApi,
+  runs as runApi,
+  tasks as taskApi,
+  tmp as tmpApi,
+  worktrees as worktreeApi,
+} from "./ipc";
 import * as terminals from "./terminals";
 import type { Agent, BoardGroup, Project, Task, TaskRun } from "./types";
 
@@ -53,15 +66,20 @@ export async function start(
   const template = group.command || agent?.command || "";
   // Only the card and the column's own prompt go to the agent: done is read from
   // the session going idle, so no board protocol is spent on every run's tokens.
+  // Every card's agent shares the one Chrome connection the user approved.
+  const browserConfig = await browserApi.mcpConfig(cwd).catch(() => null);
   const command = template
-    ? resolveCommand(template, {
-        task,
-        group,
-        path: cwd,
-        history,
-        model: pickModel(task, group, agent),
-        tmp: scratch,
-      })
+    ? withMcpConfig(
+        resolveCommand(template, {
+          task,
+          group,
+          path: cwd,
+          history,
+          model: pickModel(task, group, agent),
+          tmp: scratch,
+        }),
+        browserConfig,
+      )
     : "";
 
   const run = await runApi.claim(task.id, command || "$SHELL", cwd, agent?.id);

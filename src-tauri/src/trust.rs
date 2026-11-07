@@ -24,7 +24,7 @@ pub fn trust_all(paths: &[PathBuf]) -> Result<bool> {
 }
 
 fn config_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".claude.json"))
+    crate::platform::home().map(|home| home.join(".claude.json"))
 }
 
 #[cfg(test)]

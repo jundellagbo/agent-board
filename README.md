@@ -7,6 +7,29 @@ runs in its own git worktree, and moves to the column its exit code designates.
 Next.js (static export) inside a Tauri v2 shell; Rust owns the terminal, git,
 SQLite, indexing and notifications.
 
+## Install
+
+Download the installer for your system from the repo's Releases page:
+
+| System | File | Install |
+| --- | --- | --- |
+| Windows (x64) | `Agent.Board_x.y.z_x64-setup.exe` or `.msi` | Run it. Installs per user; WebView2 is fetched if missing. |
+| macOS (Apple Silicon / Intel) | `Agent.Board_x.y.z_aarch64.dmg` / `_x64.dmg` | Open it and drag Agent Board to Applications. |
+| Debian / Ubuntu (x64, arm64) | `agent-board_x.y.z_amd64.deb` / `_arm64.deb` | `sudo apt install ./agent-board_*.deb` |
+| Fedora / RHEL | `agent-board-x.y.z-1.x86_64.rpm` | `sudo dnf install ./agent-board-*.rpm` |
+| Any Linux | `agent-board_x.y.z_amd64.AppImage` | `chmod +x` it and run it. |
+
+The builds are not code-signed. On macOS, the first launch needs a right-click →
+Open (or `xattr -dr com.apple.quarantine "/Applications/Agent Board.app"`). On
+Windows, SmartScreen asks once — More info → Run anyway.
+
+What the app drives has to be on the machine: the `claude` CLI and `git`;
+`gh` for GitHub links. `tmux` (macOS, Linux) lets a card's agent outlive the
+window and be rejoined; without it, and on Windows, a card's terminal ends with
+the app. A launch from the Dock, Finder or a desktop menu picks up the same
+PATH your login shell has, so tools installed through Homebrew, npm or a
+version manager are found.
+
 ## Run it in development
 
 ```bash
@@ -50,14 +73,14 @@ network access.
 
 `.github/workflows/release.yml` builds on ubuntu-22.04, windows-latest and both
 macOS architectures, then opens a draft release with every installer attached.
-It runs when a tag matching `v*` is pushed, so it needs this checkout to be a
-git repository with a GitHub remote — it is not one yet. Initialise it, push it,
-and tag a version; the draft release appears under the repo's Releases tab a few
-minutes later.
+Pushing a tag matching `v*` publishes a draft release with every installer
+attached; running it by hand from the Actions tab only builds, and the
+installers come back as artifacts of that run. Linux is built for x64 and
+arm64.
 
 ### Build requirements
 
-- Rust (stable) and Node 20+ everywhere.
+- Rust (stable) and Node 22+ everywhere.
 - Linux: `libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf libxdo-dev`.
 - Windows: the WebView2 runtime (present on Windows 11, bundled by the installer).
 - macOS: Xcode command line tools.

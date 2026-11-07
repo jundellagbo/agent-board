@@ -140,8 +140,7 @@ export const tmp = {
   read: (path: string) => call<string>("read_tmp", { path }),
   /** Copies files the agent mentioned onto the card; returns the paths that need
    *  no asking again (a file not written yet is left out). */
-  collect: (cardId: string, paths: string[]) =>
-    call<string[]>("collect_tmp", { cardId, paths }),
+  collect: (cardId: string, paths: string[]) => call<string[]>("collect_tmp", { cardId, paths }),
   /** The card's directory, or null when it has no files — an agent that must be
    *  let in to read them needs the path, not the files. */
   dir: (cardId: string) => call<string | null>("tmp_dir", { cardId }),
@@ -269,6 +268,12 @@ export interface WebhookResult {
 export const notify = {
   post: (targets: { name: string; url: string }[], text: string) =>
     call<WebhookResult[]>("post_webhooks", { targets, text }),
+};
+
+export const browser = {
+  /** Points a run's Chrome DevTools MCP at the app's one approved Chrome
+   *  connection; null leaves the agent connecting on its own. */
+  mcpConfig: (cwd: string) => call<string | null>("browser_mcp_config", { cwd }),
 };
 
 export const slash = {

@@ -132,6 +132,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn the_path_search_finds_a_real_program() {
         // `sh` is on every machine this builds for.
         assert!(which("sh").is_some());

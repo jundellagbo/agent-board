@@ -328,6 +328,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn the_command_on_path_is_found() {
         // `sh` is on PATH on every machine this builds for.
         assert!(on_path("sh").is_some(), "sh should be on PATH");

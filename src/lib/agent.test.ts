@@ -9,6 +9,7 @@ import {
   priorWork,
   resolveCommand,
   taskPrompt,
+  withMcpConfig,
 } from "./agent.ts";
 import type { Agent, BoardGroup, Project, Task, TaskRun } from "./types";
 
@@ -251,4 +252,21 @@ test("a command card is handed to the agent untouched", () => {
     "a body the person wrote is kept",
   );
   assert.match(taskPrompt(task, noisy), /^Review the change\./, "ordinary cards are unchanged");
+});
+
+test("a per-run MCP config is added to claude only, after everything else", () => {
+  assert.equal(
+    withMcpConfig("claude --model x 'fix it'", '{"a":1}'),
+    `claude --model x 'fix it' --mcp-config '{"a":1}'`,
+  );
+  assert.equal(
+    withMcpConfig("C:\\bin\\claude.exe 'go'", "{}"),
+    "C:\\bin\\claude.exe 'go' --mcp-config '{}'",
+  );
+  assert.equal(
+    withMcpConfig("codex 'fix it'", "{}"),
+    "codex 'fix it'",
+    "other agents are left alone",
+  );
+  assert.equal(withMcpConfig("claude 'fix it'", null), "claude 'fix it'");
 });

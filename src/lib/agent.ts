@@ -65,6 +65,21 @@ export function resolveCommand(
   return withoutEmpty.replace(PLACEHOLDERS, (_, key: string) => quote(values[key] ?? "")).trim();
 }
 
+/**
+ * Adds a per-run MCP config to a `claude` command. Appended at the end because
+ * `--mcp-config` takes any number of values and would swallow a prompt after it.
+ */
+export function withMcpConfig(command: string, config: string | null): string {
+  const program =
+    command
+      .trim()
+      .split(/\s+/)[0]
+      ?.replace(/^['"]|['"]$/g, "") ?? "";
+  const name = program.split(/[\\/]/).pop()?.toLowerCase() ?? "";
+  if (!config || !/^claude(\.exe|\.cmd)?$/.test(name)) return command;
+  return `${command} --mcp-config ${quote(config)}`;
+}
+
 /** Most specific wins, the same order as the agent: card, column, agent. */
 export function pickModel(
   task: Task | undefined,

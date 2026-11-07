@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Duration;
 
 use rusqlite::params;
@@ -179,9 +178,7 @@ fn working_dir(db: &Db, project_id: Option<&str>) -> Result<PathBuf> {
         let project = db.with(|conn| projects::get(conn, id))?;
         return Ok(PathBuf::from(project.path));
     }
-    Ok(std::env::var("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::temp_dir()))
+    Ok(crate::platform::home_or_temp())
 }
 
 fn cli_scope(scope: &str) -> &'static str {
@@ -193,7 +190,7 @@ fn cli_scope(scope: &str) -> &'static str {
 }
 
 fn installed_servers(cwd: &Path) -> Vec<String> {
-    let mut command = Command::new("claude");
+    let mut command = crate::platform::command("claude");
     command.args(["mcp", "list"]).current_dir(cwd);
 
     match crate::process::run(command, Duration::from_secs(20)) {
@@ -216,7 +213,7 @@ fn parse_server_list(stdout: &str) -> Vec<String> {
 }
 
 fn claude(cwd: &Path, args: &[String]) -> Result<String> {
-    let mut command = Command::new("claude");
+    let mut command = crate::platform::command("claude");
     command.args(args).current_dir(cwd);
 
     let output = crate::process::run(command, Duration::from_secs(60))?;

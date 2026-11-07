@@ -19,6 +19,8 @@ jobs:
         include:
           - platform: ubuntu-22.04
             target: ""
+          - platform: ubuntu-22.04-arm
+            target: ""
           - platform: windows-latest
             target: ""
           - platform: macos-latest
@@ -31,7 +33,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux dependencies
-        if: matrix.platform == 'ubuntu-22.04'
+        if: startsWith(matrix.platform, 'ubuntu')
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
@@ -56,11 +58,22 @@ jobs:
       - run: npm ci
       - run: npm run verify
 
+      # A tag publishes a draft release with every installer attached; a manual
+      # run only builds, and the installers come back as workflow artifacts.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
+          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
           releaseName: Agent Board ${{ github.ref_name }}
           releaseDraft: true
           args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+
+      # .deb/.rpm/.AppImage, .exe/.msi, .app/.dmg — whatever this runner made.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: agent-board-${{ matrix.platform }}${{ matrix.target && format('-{0}', matrix.target) || '' }}
+          path: |
+            src-tauri/target/release/bundle/
+            src-tauri/target/*/release/bundle/
+          if-no-files-found: error

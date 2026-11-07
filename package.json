@@ -11,9 +11,9 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "rust:check": "cd src-tauri && PATH=\"$HOME/.cargo/bin:$PATH\" cargo check --quiet",
+    "rust:check": "node scripts/cargo.mjs check --quiet",
     "verify": "npm run typecheck && npm run lint -- --max-warnings=0 && npm run test:web && npm run rust:check && npm run rust:test",
-    "rust:test": "cd src-tauri && PATH=\"$HOME/.cargo/bin:$PATH\" cargo test --quiet",
+    "rust:test": "node scripts/cargo.mjs test --quiet",
     "test:web": "node --test \"src/**/*.test.ts\""
   },
   "dependencies": {

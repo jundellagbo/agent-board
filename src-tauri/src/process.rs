@@ -73,6 +73,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn output_comes_back_whole() {
         let mut command = Command::new("sh");
         command.args(["-c", "printf hello; printf oops >&2"]);
@@ -84,6 +85,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_hung_command_is_stopped_rather_than_waited_on() {
         let mut command = Command::new("sh");
         command.args(["-c", "sleep 30"]);
@@ -96,6 +98,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn more_output_than_a_pipe_buffer_does_not_deadlock() {
         let mut command = Command::new("sh");
         command.args(["-c", "yes abcdefgh | head -c 300000"]);

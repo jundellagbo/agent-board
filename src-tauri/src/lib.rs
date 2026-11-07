@@ -1,4 +1,5 @@
 mod board_events;
+mod browser_bridge;
 mod catalog;
 mod commands;
 mod db;
@@ -7,6 +8,7 @@ mod git;
 mod github;
 mod indexer;
 mod models;
+mod platform;
 mod process;
 mod pty;
 mod trust;
@@ -17,6 +19,8 @@ use db::Db;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything spawns a CLI: a GUI launch would otherwise miss them.
+    platform::inherit_login_path();
     tauri::Builder::default()
         // One window per machine: every instance would otherwise open the same
         // SQLite file, and two runners would claim the same cards.
@@ -67,6 +71,7 @@ pub fn run() {
             commands::system_terminal::open_system_terminal,
             commands::editor::open_in_editor,
             commands::slash::list_slash_commands,
+            commands::browser::browser_mcp_config,
             commands::settings::get_settings,
             commands::settings::set_setting,
             commands::settings::clear_setting,

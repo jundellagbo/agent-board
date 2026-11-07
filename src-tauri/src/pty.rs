@@ -194,7 +194,12 @@ fn build_command(options: &SpawnOptions) -> Result<CommandBuilder> {
         .split_first()
         .ok_or_else(|| Error::Invalid("the command is empty".into()))?;
 
-    let mut command = CommandBuilder::new(program);
+    // Windows will not start a `.cmd` shim such as `claude.cmd` by bare name.
+    let mut command = if cfg!(windows) {
+        CommandBuilder::new(crate::platform::resolve(program))
+    } else {
+        CommandBuilder::new(program)
+    };
     command.args(args);
     Ok(command)
 }
@@ -254,6 +259,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn output_streams_and_the_exit_code_comes_back() {
         use std::sync::mpsc::channel;
         use tauri::Listener;

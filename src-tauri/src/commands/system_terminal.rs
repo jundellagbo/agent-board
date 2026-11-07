@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::Serialize;
 
@@ -39,7 +39,44 @@ pub fn available(on_path: impl Fn(&str) -> bool) -> Vec<SystemTerminal> {
 
 #[tauri::command]
 pub fn list_terminals() -> Vec<SystemTerminal> {
+    if cfg!(target_os = "macos") {
+        // Terminal.app is always there; it is driven through osascript.
+        return vec![SystemTerminal { command: "osascript".into(), name: "Terminal".into() }];
+    }
+    if cfg!(windows) {
+        let terminal = if which("wt").is_some() {
+            SystemTerminal { command: "wt".into(), name: "Windows Terminal".into() }
+        } else {
+            SystemTerminal { command: "cmd".into(), name: "Command Prompt".into() }
+        };
+        return vec![terminal];
+    }
     available(|command| which(command).is_some())
+}
+
+/// macOS: Terminal.app opened at `cwd`, running `run` when given.
+fn mac_arguments(cwd: &str, run: Option<&str>) -> Vec<String> {
+    let line = match run {
+        Some(run) => format!("cd {} && {run}", shell_words::quote(cwd)),
+        None => format!("cd {}", shell_words::quote(cwd)),
+    };
+    let escaped = line.replace('\\', "\\\\").replace('"', "\\\"");
+    vec![
+        "-e".into(),
+        format!("tell application \"Terminal\" to do script \"{escaped}\""),
+        "-e".into(),
+        "tell application \"Terminal\" to activate".into(),
+    ]
+}
+
+/// Windows: Windows Terminal when installed, a new console window otherwise.
+fn windows_arguments(emulator: &str, cwd: &str, run: Option<&str>) -> Vec<String> {
+    match (emulator, run) {
+        ("wt", Some(run)) => vec!["-d".into(), cwd.into(), "cmd".into(), "/k".into(), run.into()],
+        ("wt", None) => vec!["-d".into(), cwd.into()],
+        (_, Some(run)) => vec!["/c".into(), "start".into(), "cmd".into(), "/k".into(), run.into()],
+        (_, None) => vec!["/c".into(), "start".into(), "cmd".into()],
+    }
 }
 
 /// The arguments that make an emulator start in a directory and run something.
@@ -102,9 +139,17 @@ pub fn open_system_terminal(cwd: String, run: Option<String>) -> Result<String> 
         .next()
         .ok_or_else(|| Error::Invalid("no terminal application found on this machine".into()))?;
 
+    let args = if cfg!(target_os = "macos") {
+        mac_arguments(&cwd, run.as_deref())
+    } else if cfg!(windows) {
+        windows_arguments(&emulator.command, &cwd, run.as_deref())
+    } else {
+        arguments(&emulator.command, &cwd, run.as_deref())
+    };
+
     // Emulators without a directory flag are started in it instead.
-    Command::new(&emulator.command)
-        .args(arguments(&emulator.command, &cwd, run.as_deref()))
+    crate::platform::command(&emulator.command)
+        .args(args)
         .current_dir(&directory)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -135,6 +180,16 @@ mod tests {
         let xterm = arguments("xterm", "/work", Some("tmux attach -t x"));
         assert_eq!(xterm[0], "-e");
         assert!(xterm[1].starts_with("sh -c "), "{:?}", xterm[1]);
+    }
+
+    #[test]
+    fn mac_and_windows_open_in_the_directory() {
+        let mac = mac_arguments("/my work", Some("tmux attach -t x"));
+        assert!(mac[1].contains("do script"), "{:?}", mac[1]);
+        assert!(mac[1].contains("cd '/my work' && tmux attach -t x"), "{:?}", mac[1]);
+
+        assert_eq!(windows_arguments("wt", "C:\\w", None), ["-d", "C:\\w"]);
+        assert_eq!(windows_arguments("cmd", "C:\\w", Some("claude"))[3..], ["/k", "claude"]);
     }
 
     #[test]

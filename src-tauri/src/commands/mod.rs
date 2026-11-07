@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod browser;
 pub mod editor;
 pub mod groups;
 pub mod index;

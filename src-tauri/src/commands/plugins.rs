@@ -1,5 +1,4 @@
 use std::path::PathBuf;
-use std::process::Command;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -30,7 +29,7 @@ pub async fn list_plugins() -> Result<Vec<Plugin>> {
 }
 
 fn read_plugins() -> Result<Vec<Plugin>> {
-    let mut command = Command::new("claude");
+    let mut command = crate::platform::command("claude");
     command.args(["plugin", "list", "--json", "--available"]);
     command.current_dir(home());
 
@@ -171,7 +170,7 @@ async fn plugin_command(action: &'static str, id: String) -> Result<String> {
     let id = crate::commands::orgs::non_empty(id, "plugin")?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        let mut command = Command::new("claude");
+        let mut command = crate::platform::command("claude");
         command.args(["plugin", action, &id]).current_dir(home());
 
         let output = crate::process::run(command, Duration::from_secs(180))?;
@@ -189,7 +188,5 @@ async fn plugin_command(action: &'static str, id: String) -> Result<String> {
 }
 
 fn home() -> PathBuf {
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
+    crate::platform::home_or_temp()
 }

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{mpsc, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -56,7 +56,7 @@ pub async fn list_slash_commands(
         None => None,
     };
     tauri::async_runtime::spawn_blocking(move || {
-        let home = std::env::var_os("HOME").map(PathBuf::from);
+        let home = crate::platform::home();
         let mut found = cli_commands(project.as_deref());
         found.extend(interactive_commands());
         found.extend(discover(home.as_deref(), project.as_deref()));
@@ -97,7 +97,7 @@ fn cli_commands(project: Option<&Path>) -> Vec<SlashCommand> {
 /// whose reply lists the loaded commands. No prompt is sent, so no model call
 /// is made; hooks and MCP servers are kept off so asking has no side effects.
 fn ask_cli(project: Option<&Path>) -> Option<Vec<SlashCommand>> {
-    let mut command = Command::new("claude");
+    let mut command = crate::platform::command("claude");
     command
         .args([
             "-p",
@@ -182,7 +182,7 @@ pub fn warm() {
 /// list; the scan is cached per binary and only redone when it changes.
 fn interactive_commands() -> Vec<SlashCommand> {
     static CACHE: OnceLock<Mutex<Option<(PathBuf, SystemTime, Vec<SlashCommand>)>>> = OnceLock::new();
-    let Some(binary) = which("claude").and_then(|path| path.canonicalize().ok()) else {
+    let Some(binary) = crate::commands::editor::which("claude").and_then(|path| path.canonicalize().ok()) else {
         return Vec::new();
     };
     let modified = std::fs::metadata(&binary).and_then(|m| m.modified()).ok();
@@ -246,13 +246,6 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     memchr::memmem::find(haystack, needle)
 }
 
-fn which(program: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH")?
-        .to_str()?
-        .split(':')
-        .map(|dir| Path::new(dir).join(program))
-        .find(|path| path.is_file())
-}
 
 fn discover(home: Option<&Path>, project: Option<&Path>) -> Vec<SlashCommand> {
     let mut found = Vec::new();
@@ -497,11 +490,13 @@ mod tests {
         write(&off.join("skills/nope/SKILL.md"), "---\nname: nope\n---\n");
         write(
             &claude.join("plugins/installed_plugins.json"),
-            &format!(
-                r#"{{"plugins":{{"design@m":[{{"installPath":"{}"}}],"off@m":[{{"installPath":"{}"}}]}}}}"#,
-                on.display(),
-                off.display()
-            ),
+            &serde_json::json!({
+                "plugins": {
+                    "design@m": [{ "installPath": on }],
+                    "off@m": [{ "installPath": off }],
+                }
+            })
+            .to_string(),
         );
         write(&claude.join("settings.json"), r#"{"enabledPlugins":{"design@m":true,"off@m":false}}"#);
 

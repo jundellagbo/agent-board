@@ -22,3 +22,10 @@ test("screenshots and reports an agent names are picked out", () => {
 test("the same path twice is listed once", () => {
   assert.deepEqual(mentionedFiles("/a/b.png and /a/b.png"), ["/a/b.png"]);
 });
+
+test("Windows paths are found too", () => {
+  assert.deepEqual(mentionedFiles("Saved C:\\Users\\me\\shot.png and D:/out/report.md"), [
+    "C:\\Users\\me\\shot.png",
+    "D:/out/report.md",
+  ]);
+});

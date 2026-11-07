@@ -8,8 +8,16 @@ import { SettingsPane } from "./SettingsPane";
 import { Sidebar } from "./Sidebar";
 import { TaskPreview } from "./TaskPreview";
 import { TerminalPane } from "./TerminalPane";
-import { pickAgent, pickModel, priorWork, resolveCommand, taskPrompt } from "@/lib/agent";
 import {
+  pickAgent,
+  pickModel,
+  priorWork,
+  resolveCommand,
+  taskPrompt,
+  withMcpConfig,
+} from "@/lib/agent";
+import {
+  browser as browserApi,
   runs as runApi,
   tasks as taskApi,
   tmp as tmpApi,
@@ -84,17 +92,21 @@ export function AppShell() {
         const agent = pickAgent(agents, { task, group, project });
         const template = group.command || agent?.command;
 
+        const browserConfig = await browserApi.mcpConfig(cwd).catch(() => null);
         const id = await terminals.open({
           cwd,
           command: template
-            ? resolveCommand(template, {
-                task,
-                group,
-                path: cwd,
-                history,
-                model: pickModel(task, group, agent),
-                tmp: scratch,
-              })
+            ? withMcpConfig(
+                resolveCommand(template, {
+                  task,
+                  group,
+                  path: cwd,
+                  history,
+                  model: pickModel(task, group, agent),
+                  tmp: scratch,
+                }),
+                browserConfig,
+              )
             : undefined,
           env: {
             AGENT_BOARD_TASK: task.title,

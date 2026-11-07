@@ -1,4 +1,3 @@
-use std::process::Command;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -75,7 +74,7 @@ pub fn resolve(input: &str) -> Result<Resolved> {
     let subcommand = if pull { "pr" } else { "issue" };
 
     let view = |fields: &str| -> Option<serde_json::Value> {
-        let mut command = Command::new("gh");
+        let mut command = crate::platform::command("gh");
         command.args([subcommand, "view", &number, "--repo", &repo, "--json", fields]);
         crate::process::run(command, Duration::from_secs(20))
             .ok()
