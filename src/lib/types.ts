@@ -203,9 +203,9 @@ export interface CatalogItem {
 export type McpScope = "user" | "project";
 
 export interface SlashCommand {
-  /** What you type: `/infra-llm-plan`, or `/dir:name` for a nested one. */
+  /** What you type: `/infra-llm-plan`, or `/plugin:name` for a plugin's. */
   name: string;
-  scope: "user" | "project";
+  scope: "project" | "user" | "plugin" | "builtin";
   description: string | null;
   argumentHint: string | null;
 }

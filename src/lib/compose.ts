@@ -1,4 +1,4 @@
-// A leading slash command, e.g. "/infra-llm-plan plans/fix.md" or "/dir:name".
+// A leading slash command, e.g. "/infra-llm-plan plans/fix.md" or "/plugin:name".
 // A path mentioned mid-sentence is not one, so the match is anchored.
 const COMMAND = /^\/([\w.-]+(?::[\w.-]+)?)(?=\s|$)/;
 
@@ -57,4 +57,28 @@ export function splitCard(input: string): Composed {
 export function appendPath(text: string, path: string): string {
   if (text.trim() === "") return path;
   return /\s$/.test(text) ? `${text}${path}` : `${text} ${path}`;
+}
+
+/**
+ * The command name still being typed — "/infra" while the cursor is on it — or
+ * null once a space ends it or the text is not a command at all.
+ */
+export function commandQuery(text: string): string | null {
+  return /^\/[\w.:-]*$/.test(text) ? text : null;
+}
+
+/** Commands matching what is typed: names that start with it first, then any containing it. */
+export function suggestCommands<T extends { name: string }>(
+  commands: T[],
+  query: string,
+  limit = 50,
+): T[] {
+  const needle = query.toLowerCase();
+  const starts = commands.filter((command) => command.name.toLowerCase().startsWith(needle));
+  const contains = commands.filter(
+    (command) =>
+      !command.name.toLowerCase().startsWith(needle) &&
+      command.name.toLowerCase().includes(needle.slice(1)),
+  );
+  return [...starts, ...contains].slice(0, limit);
 }

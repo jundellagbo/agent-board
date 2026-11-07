@@ -8,9 +8,10 @@ import { useEffect, useRef, useState } from "react";
 
 import { AttachmentPicker } from "./Attachments";
 import { Combobox } from "./Combobox";
+import { CommandInput } from "./CommandInput";
 import { reserveCardId } from "@/lib/attachments";
 import { appendPath } from "@/lib/compose";
-import { commandName } from "@/lib/compose";
+import { commandName, commandQuery } from "@/lib/compose";
 import { clearDraft, readDraft, writeDraft } from "@/lib/drafts";
 import { slash as slashApi, tmp as tmpApi, worktrees as worktreeApi } from "@/lib/ipc";
 import { modelsFor } from "@/lib/models";
@@ -18,7 +19,7 @@ import { modelsFor } from "@/lib/models";
 import { cardFromInput, looksLikeGithub } from "@/lib/github";
 
 import { TaskCard, type CardAction } from "./TaskCard";
-import { Button, CheckField, Input, Textarea } from "./ui";
+import { Button, CheckField, Input } from "./ui";
 import { pickAgent } from "@/lib/agent";
 import type { Column as ColumnData } from "@/lib/board";
 import { useStore } from "@/lib/store";
@@ -135,13 +136,16 @@ export function Column({
   // A command belongs to the piece of work, not to the column it starts in.
   const [commands, setCommands] = useState<SlashCommand[]>([]);
 
+  // Re-read every time a command is started, not once: commands, skills and
+  // plugins change on disk while the app is open, and the agent will see them.
+  const startsCommand = title.startsWith("/");
   useEffect(() => {
     if (!composing) return;
     void slashApi
       .list(group.projectId)
       .then(setCommands)
       .catch(() => setCommands([]));
-  }, [composing, group.projectId]);
+  }, [composing, group.projectId, startsCommand]);
 
   const chosenAgent = agents.find((agent) => agent.id === agentId) ?? defaultAgent;
   // Typing the command is the way to use one, so the composer says whether the
@@ -286,10 +290,11 @@ export function Column({
               void submit();
             }}
           >
-            <Textarea
+            <CommandInput
               autoFocus
               value={title}
-              onChange={(event) => setTitle(event.target.value)}
+              onValueChange={setTitle}
+              commands={commands}
               onBlur={(event) => {
                 // Blur into the pickers below is not a cancel.
                 if (
@@ -307,7 +312,7 @@ export function Column({
                 if (event.key === "Escape") reset();
               }}
               rows={3}
-              placeholder="What should the agent do?"
+              placeholder="What should the agent do? Type / for commands"
               className="resize-none bg-card"
             />
             {looksLikeGithub(title) && (
@@ -316,7 +321,7 @@ export function Column({
               </p>
             )}
 
-            {typed && (
+            {typed && (known || commandQuery(title) === null) && (
               <p
                 className={`px-1 text-xs ${known ? "text-muted-foreground" : "text-warning"}`}
                 role={known ? undefined : "alert"}

@@ -146,6 +146,7 @@ pub fn run() {
             if let Err(error) = commands::tmp::watch(app.handle().clone()) {
                 log::warn!("could not watch the tmp store: {error}");
             }
+            commands::slash::warm();
 
             Ok(())
         })

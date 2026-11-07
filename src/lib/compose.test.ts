@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { appendPath, commandName, splitCard } from "./compose.ts";
+import { appendPath, commandName, commandQuery, splitCard, suggestCommands } from "./compose.ts";
 
 test("one line is just a title", () => {
   assert.deepEqual(splitCard("Fix the flaky test"), {
@@ -56,7 +56,10 @@ test("a line that starts with a command says which one", () => {
 });
 
 test("an attached file is named where the writing left off", () => {
-  assert.equal(appendPath("Check this screenshot:", "/tmp/a.png"), "Check this screenshot: /tmp/a.png");
+  assert.equal(
+    appendPath("Check this screenshot:", "/tmp/a.png"),
+    "Check this screenshot: /tmp/a.png",
+  );
   assert.equal(appendPath("", "/tmp/a.png"), "/tmp/a.png", "nothing typed yet is just the path");
   assert.equal(
     appendPath("Look at this\n", "/tmp/a.png"),
@@ -68,4 +71,20 @@ test("an attached file is named where the writing left off", () => {
     "1. open it\n2. compare with /tmp/a.png",
     "a checklist stays a checklist",
   );
+});
+
+test("a command is suggested only while its name is being typed", () => {
+  assert.equal(commandQuery("/infra"), "/infra");
+  assert.equal(commandQuery("/"), "/");
+  assert.equal(commandQuery("/infra-llm-plan plans/x.md"), null);
+  assert.equal(commandQuery("fix /infra"), null);
+});
+
+test("names starting with the query come before ones merely containing it", () => {
+  const commands = [{ name: "/review" }, { name: "/infra-llm-plan" }, { name: "/my:infra" }];
+  assert.deepEqual(
+    suggestCommands(commands, "/infra").map((command) => command.name),
+    ["/infra-llm-plan", "/my:infra"],
+  );
+  assert.equal(suggestCommands(commands, "/").length, 3);
 });
