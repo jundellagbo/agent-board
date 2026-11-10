@@ -30,7 +30,7 @@ jobs:
 
     runs-on: ${{ matrix.platform }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Linux dependencies
         if: startsWith(matrix.platform, 'ubuntu')
@@ -39,7 +39,7 @@ jobs:
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev \
             patchelf libxdo-dev build-essential curl wget file libssl-dev
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -69,8 +69,28 @@ jobs:
           releaseDraft: true
           args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
 
+      # A green build has shipped an .exe that did not work before, so the
+      # installer is run the way a user would and the app has to stay up.
+      - name: Smoke-test the Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem src-tauri/target/release/bundle/nsis/*-setup.exe | Select-Object -First 1
+          if (-not $setup) { throw "no NSIS installer was built" }
+          Start-Process $setup.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Agent Board'
+          $exe = Get-ChildItem $dir -Filter *.exe -ErrorAction SilentlyContinue |
+            Where-Object Name -notmatch '^uninstall' | Select-Object -First 1
+          if (-not $exe) { Get-ChildItem $env:LOCALAPPDATA -Depth 1 | Out-Host; throw "the installer did not put the app in $dir" }
+          $app = Start-Process $exe.FullName -PassThru
+          Start-Sleep -Seconds 20
+          if ($app.HasExited) { throw "Agent Board exited on launch with code $($app.ExitCode)" }
+          Stop-Process -Id $app.Id -Force
+          $uninstall = Join-Path $dir 'uninstall.exe'
+          if (Test-Path $uninstall) { Start-Process $uninstall -ArgumentList '/S' -Wait }
+
       # .deb/.rpm/.AppImage, .exe/.msi, .app/.dmg — whatever this runner made.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: agent-board-${{ matrix.platform }}${{ matrix.target && format('-{0}', matrix.target) || '' }}
           path: |

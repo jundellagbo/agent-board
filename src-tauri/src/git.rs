@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::error::{Error, Result};
 
@@ -143,7 +142,7 @@ fn parse_worktrees(porcelain: &str) -> Vec<Worktree> {
 }
 
 fn run(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git")
+    let output = crate::platform::command("git")
         .args(args)
         .current_dir(cwd)
         .output()

@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use crate::error::Result;
 
@@ -27,7 +26,7 @@ pub fn collect(root: &Path) -> Vec<PathBuf> {
 }
 
 fn tracked_files(root: &Path) -> Option<Vec<PathBuf>> {
-    let output = Command::new("git")
+    let output = crate::platform::command("git")
         .args(["ls-files", "-z", "--cached", "--others", "--exclude-standard"])
         .current_dir(root)
         .output()

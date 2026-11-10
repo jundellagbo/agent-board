@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use serde::Serialize;
 
@@ -65,7 +65,7 @@ pub fn open_in_editor(path: String, command: Option<String>) -> Result<String> {
     };
 
     // Detached: the editor outlives this app, and its output is not ours.
-    Command::new(&chosen.command)
+    crate::platform::command(&chosen.command)
         .arg(&directory)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -80,17 +80,13 @@ pub fn open_in_editor(path: String, command: Option<String>) -> Result<String> {
 /// exist everywhere this app runs.
 pub fn which(command: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    let extensions: &[&str] = if cfg!(windows) {
-        &["", ".exe", ".cmd", ".bat"]
-    } else {
-        &[""]
-    };
+    let names = crate::platform::executable_names(command);
 
     std::env::split_paths(&path).find_map(|directory| {
-        extensions.iter().find_map(|extension| {
-            let candidate = directory.join(format!("{command}{extension}"));
-            is_executable(&candidate).then_some(candidate)
-        })
+        names
+            .iter()
+            .map(|name| directory.join(name))
+            .find(|candidate| is_executable(candidate))
     })
 }
 

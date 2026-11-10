@@ -322,7 +322,7 @@ fn screenshot_command(path: &Path) -> Option<Command> {
         .into_iter()
         .find(|(program, _)| super::editor::which(program).is_some())
         .map(|(program, args)| {
-            let mut command = Command::new(program);
+            let mut command = crate::platform::command(program);
             command.args(args);
             command
         })
@@ -377,7 +377,7 @@ fn clipboard_image() -> Option<Vec<u8>> {
         .into_iter()
         .filter(|(program, _)| super::editor::which(program).is_some())
         .find_map(|(program, args)| {
-            let mut command = Command::new(program);
+            let mut command = crate::platform::command(program);
             command.args(args);
             let output = crate::process::run(command, Duration::from_secs(10)).ok()?;
             (output.ok && output.bytes.starts_with(PNG_MAGIC)).then_some(output.bytes)
@@ -497,7 +497,7 @@ fn reveal_path(file: &Path) -> Result<String> {
         (opener.to_string(), vec![directory.to_string_lossy().to_string()])
     };
 
-    Command::new(&program)
+    crate::platform::command(&program)
         .args(&args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
