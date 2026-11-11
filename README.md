@@ -7,7 +7,7 @@ runs in its own git worktree, and moves to the column its exit code designates.
 Next.js (static export) inside a Tauri v2 shell; Rust owns the terminal, git,
 SQLite, indexing and notifications.
 
-![Agent Board: a project board with TODO, For Review, Agent Review, Commit and Completed columns, and the project and worktree sidebar](docs/screenshot.png)
+![Agent Board: a project board with TODO, For Review, Agent Review and Completed columns, and the project and worktree sidebar](docs/screenshot.png)
 
 ## Install
 
