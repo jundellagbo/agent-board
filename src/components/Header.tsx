@@ -4,6 +4,7 @@ import { useStore, type View } from "@/lib/store";
 
 const VIEWS: { id: View; label: string }[] = [
   { id: "board", label: "Board" },
+  { id: "planner", label: "Planner" },
   { id: "terminal", label: "Terminal" },
   { id: "settings", label: "Settings" },
 ];

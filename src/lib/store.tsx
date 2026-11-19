@@ -29,7 +29,7 @@ import { retheme } from "./terminals";
 import { DEFAULT_THEME, THEME_KEY, applyTheme, parseTheme, type Theme } from "./theme";
 import type { Agent, Organization, Project } from "./types";
 
-export type View = "board" | "terminal" | "settings";
+export type View = "board" | "planner" | "terminal" | "settings";
 
 const SELECTION_KEY = "agent-board.selection";
 

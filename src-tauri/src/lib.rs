@@ -104,6 +104,12 @@ pub fn run() {
             commands::tmp::clear_tmp,
             commands::tmp::reveal_tmp,
             commands::tmp::reveal_project_tmp,
+            commands::planner::list_plans,
+            commands::planner::create_plan,
+            commands::planner::read_plan,
+            commands::planner::write_plan,
+            commands::planner::rename_plan,
+            commands::planner::delete_plan,
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

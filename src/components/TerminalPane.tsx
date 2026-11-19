@@ -2,7 +2,7 @@
 
 import "@xterm/xterm/css/xterm.css";
 
-import { ColumnsIcon, ExternalLinkIcon, RowsIcon, XIcon } from "lucide-react";
+import { ColumnsIcon, ExternalLinkIcon, HistoryIcon, RowsIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { Button } from "./ui";
@@ -90,10 +90,17 @@ export function TerminalPane({
     }
   }
 
-  async function spawn(mode: "replace" | "split") {
+  async function spawn(mode: "replace" | "split" | "resume") {
+    // Claude keys its sessions by directory, so a card's worktree has its own
+    // history — resume where the focused terminal is, not always the project root.
+    const cwd = mode === "resume" ? (focusedSession?.cwd ?? project.path) : project.path;
     try {
-      const id = await terminals.open({ cwd: project.path, title: project.name });
-      setVisible((current) => (mode === "split" ? [...current, id] : [id]));
+      const id = await terminals.open({
+        cwd,
+        title: mode === "resume" ? `Resume · ${project.name}` : project.name,
+        command: mode === "resume" ? "claude --resume" : undefined,
+      });
+      setVisible((current) => (mode === "replace" ? [id] : [...current, id]));
       onActivate(id);
       setError(null);
       requestAnimationFrame(() => terminals.focus(id));
@@ -218,6 +225,14 @@ export function TerminalPane({
         >
           <ExternalLinkIcon />
         </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          title="Pick an earlier Claude session in this directory and carry on with it"
+          onClick={() => void spawn("resume")}
+        >
+          <HistoryIcon /> Resume
+        </Button>
         <Button size="sm" variant="outline" onClick={() => void spawn("replace")}>
           Open terminal
         </Button>
@@ -233,9 +248,14 @@ export function TerminalPane({
         {open.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2">
             <p className="text-sm text-muted-foreground">No terminal open.</p>
-            <Button size="sm" onClick={() => void spawn("replace")}>
-              Open a shell in {project.name}
-            </Button>
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void spawn("replace")}>
+                Open a shell in {project.name}
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => void spawn("resume")}>
+                <HistoryIcon /> Resume a Claude session
+              </Button>
+            </div>
           </div>
         ) : (
           <div

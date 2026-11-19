@@ -18,6 +18,7 @@ import type {
   SlashCommand,
   Plugin,
   Editor,
+  PlanFile,
   TmpFile,
   TmpKind,
 } from "./types";
@@ -158,6 +159,16 @@ export const tmp = {
   /** Fires whenever a card's files change, whoever changed them. */
   onChanged: (handler: (cardId: string) => void) =>
     listen<{ cardId: string }>("tmp://changed", ({ payload }) => handler(payload.cardId)),
+};
+
+export const planner = {
+  list: () => call<PlanFile[]>("list_plans"),
+  create: (name: string, contents?: string) =>
+    call<PlanFile>("create_plan", { name, contents: contents ?? null }),
+  read: (name: string) => call<string>("read_plan", { name }),
+  write: (name: string, contents: string) => call<PlanFile>("write_plan", { name, contents }),
+  rename: (from: string, to: string) => call<PlanFile>("rename_plan", { from, to }),
+  remove: (name: string) => call<void>("delete_plan", { name }),
 };
 
 export const agents = {

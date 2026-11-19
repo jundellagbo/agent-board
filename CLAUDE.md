@@ -51,3 +51,12 @@ another's plan files or assume a plan you can't see. `infra-llm --worktrees`
 lists them; session records land in `infra-llm/sessions/<id>.md`.
 
 <!-- infra-llm:end -->
+
+**User guide.** `docs.pdf` in the repo root is the user guide, rendered from
+`docs/guide/agent-board.html` (screenshots in `docs/screenshots/`). Any patch,
+update or new feature that changes what a user sees or configures updates that
+HTML — the affected section, a retaken screenshot if the UI changed, and a
+changelog entry — then re-renders the PDF from `docs/guide`:
+`google-chrome --headless=new --no-pdf-header-footer --virtual-time-budget=15000 --print-to-pdf=../../docs.pdf "file://$PWD/agent-board.html"`.
+Screenshots use `scripts/docs/mock-ipc.js` as an init script against `next dev`,
+so they never show real projects.

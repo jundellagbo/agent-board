@@ -214,3 +214,106 @@
     }
   }
 }
+
+/* Rendered planner notes, read like a repository README. */
+@layer components {
+  .markdown-body {
+    font-size: 0.875rem;
+    line-height: 1.7;
+    color: var(--foreground);
+  }
+  .markdown-body > * + * {
+    margin-top: 0.9em;
+  }
+  .markdown-body :is(h1, h2, h3, h4) {
+    font-weight: 600;
+    line-height: 1.3;
+    margin-top: 1.6em;
+  }
+  .markdown-body > :first-child {
+    margin-top: 0;
+  }
+  .markdown-body h1 {
+    font-size: 1.6em;
+    padding-bottom: 0.3em;
+    border-bottom: 1px solid var(--border);
+  }
+  .markdown-body h2 {
+    font-size: 1.3em;
+    padding-bottom: 0.25em;
+    border-bottom: 1px solid var(--border);
+  }
+  .markdown-body h3 {
+    font-size: 1.1em;
+  }
+  .markdown-body a {
+    color: var(--brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .markdown-body :is(ul, ol) {
+    padding-left: 1.5em;
+  }
+  .markdown-body ul {
+    list-style: disc;
+  }
+  .markdown-body ol {
+    list-style: decimal;
+  }
+  .markdown-body li + li {
+    margin-top: 0.25em;
+  }
+  .markdown-body li:has(> input[type="checkbox"]) {
+    list-style: none;
+    margin-left: -1.3em;
+  }
+  .markdown-body input[type="checkbox"] {
+    margin-right: 0.4em;
+    vertical-align: middle;
+  }
+  .markdown-body code {
+    font-family: var(--font-code);
+    font-size: 0.85em;
+    padding: 0.15em 0.35em;
+    border-radius: calc(var(--radius) - 4px);
+    background: var(--muted);
+  }
+  .markdown-body pre {
+    font-family: var(--font-code);
+    font-size: 0.8125rem;
+    padding: 0.9em 1em;
+    overflow-x: auto;
+    border-radius: calc(var(--radius) - 2px);
+    background: var(--muted);
+  }
+  .markdown-body pre code {
+    padding: 0;
+    background: none;
+    font-size: inherit;
+  }
+  .markdown-body blockquote {
+    padding-left: 1em;
+    border-left: 3px solid var(--border);
+    color: var(--muted-foreground);
+  }
+  .markdown-body table {
+    border-collapse: collapse;
+    display: block;
+    overflow-x: auto;
+  }
+  .markdown-body :is(th, td) {
+    padding: 0.4em 0.8em;
+    border: 1px solid var(--border);
+  }
+  .markdown-body th {
+    font-weight: 600;
+    background: var(--muted);
+  }
+  .markdown-body hr {
+    border: 0;
+    border-top: 1px solid var(--border);
+  }
+  .markdown-body img {
+    max-width: 100%;
+  }
+}

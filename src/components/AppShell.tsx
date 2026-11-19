@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 
 import { Board } from "./Board";
 import { Header } from "./Header";
+import { PlannerPane } from "./PlannerPane";
 import { SettingsPane } from "./SettingsPane";
 import { Sidebar } from "./Sidebar";
 import { TaskPreview } from "./TaskPreview";
@@ -209,6 +210,8 @@ export function AppShell() {
         <main className="min-h-0 flex-1 overflow-hidden p-4">
           {loading ? (
             <Placeholder title="Loading" hint="Reading the local database." />
+          ) : view === "planner" ? (
+            <PlannerPane />
           ) : !project ? (
             <Placeholder
               title="No project selected"

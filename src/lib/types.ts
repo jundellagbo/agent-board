@@ -95,6 +95,13 @@ export interface Task {
 /** What a card was given, and what its agent handed back. */
 export type TmpKind = "attached" | "response";
 
+export interface PlanFile {
+  name: string;
+  path: string;
+  size: number;
+  modifiedAt: string;
+}
+
 export interface TmpFile {
   cardId: string;
   kind: TmpKind;

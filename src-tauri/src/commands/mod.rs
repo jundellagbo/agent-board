@@ -6,6 +6,7 @@ pub mod index;
 pub mod mcp;
 pub mod notify;
 pub mod orgs;
+pub mod planner;
 pub mod plugins;
 pub mod projects;
 pub mod runs;
